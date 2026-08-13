@@ -209,14 +209,89 @@ async function formatPriceText() {
   return `💲 *Pricing (top models)*\n\n*Text (USD / 1M tokens):*\n${textLines.join('\n')}${more}\n\n*Image:*\n${imgLines.join('\n')}${moreImg}\n\n_Use /models to browse all._`;
 }
 // ─── Telegram send helpers ─────────────────────────────────────────────────────
-async function sendMessage(chatId, text, extra = {}) {
+const MAX_MSG_LEN = 4000;
+
+// Split long messages on line boundaries (Telegram max ~4096 chars)
+function splitMessage(text) {
+  if (!text || text.length <= MAX_MSG_LEN) return text ? [text] : [];
+  const parts = [];
+  let rest = text;
+  while (rest.length > MAX_MSG_LEN) {
+    let cut = rest.lastIndexOf('\n', MAX_MSG_LEN);
+    if (cut < MAX_MSG_LEN / 2) cut = MAX_MSG_LEN;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+// Escape text for safe insertion into Telegram HTML
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Reformat raw model output into clean, readable Telegram HTML.
+// Converts markdown-ish text (bold, italic, code, lists, headings) safely.
+function beautify(text) {
+  if (!text) return '_(no response)_';
+  let t = escapeHtml(text.trim()).replace(/\r\n/g, '\n');
+
+  // ```code blocks```
+  t = t.replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, code) => `<pre>${code.trim()}</pre>`);
+  // inline `code`
+  t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  // **bold**
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  // *italic* (single, not part of bold)
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');
+  // markdown headings → bold section label
+  t = t.replace(/^#{1,6}\s*(.+)$/gm, '📌 <b>$1</b>');
+  // dash bullets → nice dot bullets
+  t = t.replace(/^[-*]\s+/gm, '• ');
+  // collapse excessive blank lines
+  t = t.replace(/\n{3,}/g, '\n\n');
+  return t.trim();
+}
+
+// Send one message; falls back to plain text if parse_mode rejects it.
+async function sendMessageOnce(chatId, text, parseMode, extra = {}) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown', ...extra }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: parseMode, ...extra }),
   });
-  if (!res.ok) console.error('sendMessage failed:', res.status, await res.text());
+  if (!res.ok) {
+    const errBody = await res.text();
+    console.error('sendMessage failed:', res.status, errBody);
+    if (res.status === 400) {
+      // parse_mode choked on the text — resend as plain text so we never lose a reply
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text, ...extra }),
+      });
+    }
+  }
+}
+
+// Markdown-mode send (used by hand-written bot templates)
+async function sendMessage(chatId, text, extra = {}) {
+  for (const part of splitMessage(text)) {
+    await sendMessageOnce(chatId, part, 'Markdown', extra);
+  }
+}
+
+// HTML-mode send (used for beautified AI responses)
+async function sendMessageHTML(chatId, text, extra = {}) {
+  for (const part of splitMessage(text)) {
+    await sendMessageOnce(chatId, part, 'HTML', extra);
+  }
 }
 
 async function sendPhoto(chatId, url, caption = '') {
@@ -330,7 +405,7 @@ async function handleVision(chatId, photoArray, caption) {
       max_tokens: 1024,
     });
     const reply = res.choices?.[0]?.message?.content || 'No analysis returned.';
-    await sendMessage(chatId, reply, mainMenuKeyboard());
+    await sendMessageHTML(chatId, `👁️ <b>Image Analysis</b>\n\n${beautify(reply)}\n\n<i>Tap a menu button below or send /start for help.</i>`, mainMenuKeyboard());
   } catch (err) {
     console.error('vision error:', err);
     await sendMessage(chatId, `❌ Image analysis failed: ${err.message}`);
@@ -387,7 +462,7 @@ async function handleChat(chatId, text) {
       messages: [{ role: 'user', content: text }],
     });
     const reply = res.choices?.[0]?.message?.content || 'No response.';
-    await sendMessage(chatId, reply, mainMenuKeyboard());
+    await sendMessageHTML(chatId, `🤖 <b>Response</b>\n\n${beautify(reply)}\n\n<i>Tap a menu button below or send /start for help.</i>`, mainMenuKeyboard());
   } catch (err) {
     console.error('chat error:', err);
     await sendMessage(chatId, `❌ Chat failed: ${err.message}`);
