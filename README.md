@@ -10,7 +10,7 @@ This bot is designed for **Vercel** (serverless) with no persistent server requi
 - ⚙️ Per-user model selection (in-memory, resets on cold start)
 - 📊 Live usage & limit tracking (from OpenRouter)
 - 💲 Pricing information for the active models
-- ℹ️ One-tap overall summary of models, usage, and price
+- ℹ️ One-tap overall summary of models and usage
 - 🔐 Simple, stateless architecture — no external database needed
 
 ---
@@ -40,7 +40,6 @@ Telegram ──POST webhook──> Vercel (api/telegram.js)
                                ├── /image <prompt> → OpenRouter Image Generation
                                ├── /models → User model selection (in-memory)
                                ├── /usage → OpenRouter auth/key endpoint
-                               ├── /price → Local price table
                                └── /info → Combined summary
 ```
 
@@ -194,7 +193,6 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 | `/image <prompt>` | Generate an image from a text prompt |
 | `/models` | Select text and image models |
 | `/usage` | Check OpenRouter credit usage |
-| `/price` | View pricing for all models |
 | `/info` | Overall summary of models, usage, and pricing |
 
 ---

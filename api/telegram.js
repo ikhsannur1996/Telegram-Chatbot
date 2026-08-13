@@ -146,7 +146,6 @@ function mainMenuKeyboard() {
       { text: '📊 Usage', callback_data: 'menu:usage' },
     ],
     [
-      { text: '💲 Pricing', callback_data: 'menu:price' },
       { text: 'ℹ️ Info', callback_data: 'menu:info' },
     ],
     [
@@ -195,19 +194,6 @@ async function modelPageKeyboard(kind, currentId, page = 0, freeOnly = false) {
   return inlineKeyboard(rows);
 }
 
-// Build dynamic pricing text from live data
-async function formatPriceText() {
-  const all = await fetchModels();
-  const textLines = all.text.slice(0, 20).map(
-    (m) => `• ${m.name.slice(0, 35)} — \`${m.id}\`\n  ${m.priceStr}`
-  );
-  const imgLines = all.image.slice(0, 10).map(
-    (m) => `• ${m.name.slice(0, 35)} — \`${m.id}\` — ${m.priceStr}`
-  );
-  const more = all.text.length > 20 ? `\n… and ${all.text.length - 20} more text models` : '';
-  const moreImg = all.image.length > 10 ? `\n… and ${all.image.length - 10} more image models` : '';
-  return `💲 *Pricing (top models)*\n\n*Text (USD / 1M tokens):*\n${textLines.join('\n')}${more}\n\n*Image:*\n${imgLines.join('\n')}${moreImg}\n\n_Use /models to browse all._`;
-}
 // ─── Telegram send helpers ─────────────────────────────────────────────────────
 const MAX_MSG_LEN = 4000;
 
@@ -335,7 +321,6 @@ async function setBotCommands() {
     { command: 'image', description: 'Generate an image from a prompt' },
     { command: 'models', description: 'Browse and select AI models' },
     { command: 'usage', description: 'Check OpenRouter credit usage' },
-    { command: 'price', description: 'View model pricing' },
     { command: 'info', description: 'Overall summary of models, usage, and pricing' },
     { command: 'about', description: 'Learn about this bot — features, architecture & more' },
   ];
@@ -422,7 +407,6 @@ async function handleStart(chatId) {
       '• /image `<prompt>` — generate an image\n' +
       '• /models — pick your text & image model\n' +
       '• /usage — check OpenRouter usage\n' +
-      '• /price — see model pricing\n' +
       '• /info — overall summary\n' +
       '• /about — learn about this bot',
     mainMenuKeyboard()
@@ -544,7 +528,6 @@ async function handleAbout(chatId) {
     '• /models — pick text & image model\n' +
     '• /image <prompt> — generate an image\n' +
     '• /usage — check credit usage\n' +
-    '• /price — view model pricing\n' +
     '• /info — your current summary\n\n' +
     'Open source & MIT licensed. Built with ❤️ using Node.js, OpenRouter & Vercel.';
   await sendMessage(chatId, text, mainMenuKeyboard());
@@ -594,8 +577,6 @@ async function handleCallback(query) {
       await sendMessage(chatId, '🤖 *Choose a category:*', inlineKeyboard(rows));
     } else if (section === 'usage') {
       await handleUsage(chatId);
-    } else if (section === 'price') {
-      await sendMessage(chatId, await formatPriceText(), mainMenuKeyboard());
     } else if (section === 'info') {
       await handleInfo(chatId);
     } else if (section === 'about') {
@@ -735,7 +716,6 @@ export default async function handler(req, res) {
           ];
           await sendMessage(chatId, '🤖 *Choose a category:*', inlineKeyboard(rows));
         } else if (text.startsWith('/usage')) await handleUsage(chatId);
-        else if (text.startsWith('/price')) await sendMessage(chatId, await formatPriceText(), mainMenuKeyboard());
         else if (text.startsWith('/info')) await handleInfo(chatId);
         else if (text.startsWith('/about')) await handleAbout(chatId);
         else await handleChat(chatId, text);
