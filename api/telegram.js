@@ -17,10 +17,10 @@ const openai = new OpenAI({
 
 // ─── Model catalogs (fallback when API is unreachable) ──────────────────────────
 const FALLBACK_TEXT = [
+  { id: 'deepseek/deepseek-v4-flash-0731', name: '🔍 DeepSeek V4 Flash', in: 0.00000008, out: 0.00000018 },
   { id: 'openai/gpt-4o-mini', name: '⚡ GPT-4o Mini', in: 0.15, out: 0.60 },
   { id: 'anthropic/claude-3.5-sonnet', name: '🧠 Claude 3.5 Sonnet', in: 3.0, out: 15.0 },
   { id: 'google/gemini-2.0-flash-001', name: '🚀 Gemini 2.0 Flash', in: 0.10, out: 0.40 },
-  { id: 'deepseek/deepseek-r1', name: '🔍 DeepSeek R1', in: 0.55, out: 2.19 },
   { id: 'meta-llama/llama-3.3-70b-instruct', name: '🦙 Llama 3.3 70B', in: 0.25, out: 1.0 },
 ];
 
@@ -90,30 +90,32 @@ async function fetchModels() {
   }
 }
 
-// ─── Default models: prefer free ones ─────────────────────────────────────────
-const DEFAULT_FREE_TEXT_ID = 'meta-llama/llama-3.3-70b-instruct';
-const DEFAULT_FREE_IMAGE_ID = 'stabilityai/sdxl-turbo';
+// ─── Default models ────────────────────────────────────────────────────────────
+const DEFAULT_TEXT_ID = 'deepseek/deepseek-v4-flash-0731'; // cheapest DeepSeek model
+const DEFAULT_IMAGE_ID = 'stabilityai/sdxl-turbo'; // cheapest image model
 
-// Pick a free text model; fall back to a known good model if no free ones exist.
+// Pick the cheapest DeepSeek model as the default.
 async function getDefaultTextModel() {
   try {
     const all = await fetchModels();
-    const freeText = all.text.filter((m) => m.isFree && m.supportsVision !== false);
-    if (freeText.length > 0) return freeText[0].id;
+    const deepseek = all.text.filter((m) => m.id.startsWith('deepseek/'));
+    if (deepseek.length > 0) {
+      deepseek.sort((a, b) => a.prompt - b.prompt); // cheapest first
+      return deepseek[0].id;
+    }
     if (all.text.length > 0) return all.text[0].id;
   } catch {}
-  return DEFAULT_FREE_TEXT_ID;
+  return DEFAULT_TEXT_ID;
 }
 
-// Pick a free image model.
+// Pick the cheapest image model.
 async function getDefaultImageModel() {
   try {
     const all = await fetchModels();
-    const freeImg = all.image.filter((m) => m.isFree);
-    if (freeImg.length > 0) return freeImg[0].id;
-    if (all.image.length > 0) return all.image[0].id;
+    const imgs = all.image.slice().sort((a, b) => a.price - b.price);
+    if (imgs.length > 0) return imgs[0].id;
   } catch {}
-  return DEFAULT_FREE_IMAGE_ID;
+  return DEFAULT_IMAGE_ID;
 }
 
 
