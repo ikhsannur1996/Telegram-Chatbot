@@ -40,7 +40,7 @@ Telegram ──POST webhook──> Vercel (api/telegram.js)
                                ├── /image <prompt> → OpenRouter Image Generation
                                ├── /models → User model selection (in-memory)
                                ├── /usage → OpenRouter auth/key endpoint
-                               └── /info → Combined summary
+                               └── /profile → Combined summary
 ```
 
 - **Stateless logic** – Each webhook invocation is independent.
@@ -194,7 +194,7 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 | `/image <prompt>` | Generate an image from a text prompt |
 | `/models` | Browse and select text and image models |
 | `/usage` | Check OpenRouter credit usage |
-| `/info` | Overall summary of models, usage, and pricing |
+| `/profile` | Your profile — active models and usage |
 
 ---
 

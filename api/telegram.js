@@ -94,11 +94,11 @@ async function fetchModels() {
 const DEFAULT_TEXT_ID = 'deepseek/deepseek-v4-flash-0731'; // cheapest DeepSeek model
 const DEFAULT_IMAGE_ID = 'stabilityai/sdxl-turbo'; // cheapest image model
 
-// Pick the cheapest DeepSeek model as the default.
+// Pick the cheapest DeepSeek model as the default (excluding batch-only models).
 async function getDefaultTextModel() {
   try {
     const all = await fetchModels();
-    const deepseek = all.text.filter((m) => m.id.startsWith('deepseek/'));
+    const deepseek = all.text.filter((m) => m.id.startsWith('deepseek/') && !m.id.includes(':batch'));
     if (deepseek.length > 0) {
       deepseek.sort((a, b) => a.prompt - b.prompt); // cheapest first
       return deepseek[0].id;
@@ -108,11 +108,13 @@ async function getDefaultTextModel() {
   return DEFAULT_TEXT_ID;
 }
 
-// Pick the cheapest image model.
+// Pick the cheapest realtime image model (excluding batch-only models).
 async function getDefaultImageModel() {
   try {
     const all = await fetchModels();
-    const imgs = all.image.slice().sort((a, b) => a.price - b.price);
+    const imgs = all.image
+      .filter((m) => !m.id.includes(':batch')) // batch models can't generate on demand
+      .sort((a, b) => a.price - b.price);
     if (imgs.length > 0) return imgs[0].id;
   } catch {}
   return DEFAULT_IMAGE_ID;
@@ -152,7 +154,7 @@ function mainMenuKeyboard() {
       { text: '📊 Usage', callback_data: 'menu:usage' },
     ],
     [
-      { text: 'ℹ️ Info', callback_data: 'menu:info' },
+      { text: '👤 Profile', callback_data: 'menu:profile' },
       { text: 'ℹ️ About', callback_data: 'menu:about' },
     ],
   ]);
@@ -327,7 +329,7 @@ async function setBotCommands() {
     { command: 'image', description: 'Generate an image from a prompt' },
     { command: 'models', description: 'Browse and select AI models' },
     { command: 'usage', description: 'Check OpenRouter credit usage' },
-    { command: 'info', description: 'Overall summary of models, usage, and pricing' },
+    { command: 'profile', description: 'Your profile — active models and usage' },
     { command: 'about', description: 'Learn about this bot — features, architecture & more' },
   ];
   const res = await fetch(url, {
@@ -481,7 +483,7 @@ async function handleUsage(chatId) {
   }
 }
 
-async function handleInfo(chatId) {
+async function handleProfile(chatId) {
   const prefs = getUserPrefs(chatId);
   const textModel = prefs.text_model || (await getDefaultTextModel());
   const imageModel = prefs.image_model || (await getDefaultImageModel());
@@ -503,7 +505,7 @@ async function handleInfo(chatId) {
 
   await sendMessage(
     chatId,
-    `📊 *Overall Summary*\n\n` +
+    `👤 *Profile* — your current settings\n\n` +
       `🤖 *Active Models:*\n` +
       `💬 Text: \`${textModel}\`\n` +
       `🖼️ Image: \`${imageModel}\`\n\n` +
@@ -532,7 +534,7 @@ async function handleAbout(chatId) {
     '• /models — pick text & image model\n' +
     '• /image <prompt> — generate an image\n' +
     '• /usage — check credit usage\n' +
-    '• /info — your current summary\n\n' +
+    '• /profile — your current summary\n\n' +
     'Open source & MIT licensed. Built with ❤️ using Node.js, OpenRouter & Vercel.';
   await sendMessage(chatId, text, mainMenuKeyboard());
 }
@@ -585,8 +587,8 @@ async function handleCallback(query) {
       await sendMessage(chatId, '🎨 *Image Generation*\n\nUse `/image <prompt>` to generate images.\n\nExample: `/image a futuristic city at sunset`\n\nYou can change the image model in /models.', mainMenuKeyboard());
     } else if (section === 'usage') {
       await handleUsage(chatId);
-    } else if (section === 'info') {
-      await handleInfo(chatId);
+    } else if (section === 'profile') {
+      await handleProfile(chatId);
     } else if (section === 'about') {
       await handleAbout(chatId);
     }
@@ -729,7 +731,7 @@ export default async function handler(req, res) {
           ];
           await sendMessage(chatId, '🤖 *Choose a category:*', inlineKeyboard(rows));
         } else if (text.startsWith('/usage')) await handleUsage(chatId);
-        else if (text.startsWith('/info')) await handleInfo(chatId);
+        else if (text.startsWith('/profile')) await handleProfile(chatId);
         else if (text.startsWith('/about')) await handleAbout(chatId);
         else await handleChat(chatId, text);
       }
