@@ -248,6 +248,27 @@ async function setWebhook(host) {
   const result = await res.json();
   return { ...result, webhookUrl, domain };
 }
+
+// ─── Register bot commands (autocomplete when typing /) ───────────────────────
+async function setBotCommands() {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`;
+  const commands = [
+    { command: 'start', description: 'Start the bot and show welcome menu' },
+    { command: 'image', description: 'Generate an image from a prompt' },
+    { command: 'models', description: 'Browse and select AI models' },
+    { command: 'usage', description: 'Check OpenRouter credit usage' },
+    { command: 'price', description: 'View model pricing' },
+    { command: 'info', description: 'Overall summary of models, usage, and pricing' },
+  ];
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commands }),
+  });
+  const result = await res.json();
+  return { ...result, commands: commands.map(c => '/' + c.command) };
+}
+
 // ─── Vision: get Telegram photo URL ────────────────────────────────────────────
 async function getTelegramFileUrl(fileId) {
   const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`);
@@ -541,16 +562,23 @@ export default async function handler(req, res) {
     // Register webhook endpoint
     if (req.query.register === '1') {
       const result = await setWebhook(req.headers.host);
+      const cmds = await setBotCommands();
       // Return HTML for easy debugging in browser
       const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2em">
         <h1>🤖 Telegram Bot Webhook</h1>
-        <p>${result.ok ? '✅ Webhook registered!' : '❌ Registration failed'}</p>
-        <pre>${JSON.stringify(result, null, 2)}</pre>
+        <p>${result.ok ? '✅ Webhook registered!' : '❌ Webhook registration failed'}</p>
+        <p>${cmds.ok ? '✅ Commands registered!' : '❌ Commands registration failed'}</p>
+        <pre>${JSON.stringify({ webhook: result, commands: cmds }, null, 2)}</pre>
         <hr>
-        <p>If <code>domain</code> is <code>null</code> or empty below, the webhook URL wasn't set correctly.</p>
-        <p>👉 <a href="/api/telegram?help=1">Check webhook info</a></p>
+        <p><a href="/api/telegram?help=1">Check webhook info</a> | <a href="/api/telegram?commands=1">Re-register commands only</a></p>
       </body></html>`;
       return res.status(200).setHeader('Content-Type', 'text/html').end(html);
+    }
+
+    // Register bot commands only (autocomplete suggestions)
+    if (req.query.commands === '1') {
+      const cmds = await setBotCommands();
+      return res.status(200).json({ ok: cmds.ok, ...cmds });
     }
 
     // Show current webhook status from Telegram
