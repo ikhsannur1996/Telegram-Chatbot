@@ -149,6 +149,9 @@ function mainMenuKeyboard() {
       { text: '💲 Pricing', callback_data: 'menu:price' },
       { text: 'ℹ️ Info', callback_data: 'menu:info' },
     ],
+    [
+      { text: 'ℹ️ About', callback_data: 'menu:about' },
+    ],
   ]);
 }
 
@@ -259,6 +262,7 @@ async function setBotCommands() {
     { command: 'usage', description: 'Check OpenRouter credit usage' },
     { command: 'price', description: 'View model pricing' },
     { command: 'info', description: 'Overall summary of models, usage, and pricing' },
+    { command: 'about', description: 'Learn about this bot — features, architecture & more' },
   ];
   const res = await fetch(url, {
     method: 'POST',
@@ -344,7 +348,8 @@ async function handleStart(chatId) {
       '• /models — pick your text & image model\n' +
       '• /usage — check OpenRouter usage\n' +
       '• /price — see model pricing\n' +
-      '• /info — overall summary',
+      '• /info — overall summary\n' +
+      '• /about — learn about this bot',
     mainMenuKeyboard()
   );
 }
@@ -446,6 +451,31 @@ async function handleInfo(chatId) {
       `Tip: Use /models to switch models anytime.`
   );
 }
+async function handleAbout(chatId) {
+  const text =
+    '🤖 *About This Bot*\n\n' +
+    'A lightweight, serverless Telegram AI bot built with OpenRouter and deployed on Vercel — no database required.\n\n' +
+    '✨ *What it can do:*\n' +
+    '• 💬 *Chat* — talk with top AI models (Llama, GPT, Claude, Gemini & more)\n' +
+    '• 👁️ *Vision* — send a photo and I analyze / extract info from it\n' +
+    '• 🎨 *Image generation* — `/image <prompt>` creates images on demand\n' +
+    '• 🧠 *100+ models* — browse all OpenRouter models, filter free ones\n\n' +
+    '🆓 *Free by default* — uses free models automatically to keep costs at $0\n\n' +
+    '⚙️ *Architecture:*\n' +
+    '• Telegram webhook → Vercel serverless function\n' +
+    '• OpenRouter API handles text, vision & images with one key\n' +
+    '• Model prefs kept in memory (reset on cold start)\n\n' +
+    '📌 *Quick commands:*\n' +
+    '• /models — pick text & image model\n' +
+    '• /image <prompt> — generate an image\n' +
+    '• /usage — check credit usage\n' +
+    '• /price — view model pricing\n' +
+    '• /info — your current summary\n\n' +
+    'Open source & MIT licensed. Built with ❤️ using Node.js, OpenRouter & Vercel.';
+  await sendMessage(chatId, text, mainMenuKeyboard());
+}
+
+
 // ─── Callback (menu button) handler ────────────────────────────────────────────
 async function handleCallback(query) {
   const chatId = query.message?.chat?.id;
@@ -493,6 +523,8 @@ async function handleCallback(query) {
       await sendMessage(chatId, await formatPriceText(), mainMenuKeyboard());
     } else if (section === 'info') {
       await handleInfo(chatId);
+    } else if (section === 'about') {
+      await handleAbout(chatId);
     }
     return;
   }
@@ -504,7 +536,7 @@ async function handleCallback(query) {
     const prefs = getUserPrefs(chatId);
     const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
     const labels = { text: '💬 Text models', image: '🖼️ Image models', free: '🆓 Free models' };
-    await sendMessage(chatId, `*${labels[kind] || 'Models'}*`, await modelPageKeyboard(kind, current, 0, kind === 'free' ? false : true));
+    await sendMessage(chatId, `*${labels[kind] || 'Models'}*`, await modelPageKeyboard(kind, current, 0, false));
     return;
   }
 
@@ -629,6 +661,7 @@ export default async function handler(req, res) {
         } else if (text.startsWith('/usage')) await handleUsage(chatId);
         else if (text.startsWith('/price')) await sendMessage(chatId, await formatPriceText(), mainMenuKeyboard());
         else if (text.startsWith('/info')) await handleInfo(chatId);
+        else if (text.startsWith('/about')) await handleAbout(chatId);
         else await handleChat(chatId, text);
       }
     } else if (body.callback_query) {
