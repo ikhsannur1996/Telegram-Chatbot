@@ -400,19 +400,8 @@ async function handleVision(chatId, photoArray, caption) {
 }
 // ─── Command handlers ──────────────────────────────────────────────────────────
 async function handleStart(chatId) {
-  await sendMessage(
-    chatId,
-    '👋 *Welcome to Telegram AI Bot!*\n\n' +
-      'I can chat with you, analyze images, and generate images using top AI models via OpenRouter.\n\n' +
-      'Send me any *text* to chat, or use:\n' +
-      '• 📷 *Send a photo* — I\'ll analyze it\n' +
-      '• /image `<prompt>` — generate an image\n' +
-      '• /models — pick your text & image model\n' +
-      '• /usage — check OpenRouter usage\n' +
-      '• /info — overall summary\n' +
-      '• /about — learn about this bot',
-    mainMenuKeyboard()
-  );
+  await sendMessage(chatId, '👋 *Welcome!* Here is everything you need to know about this bot:');
+  await handleAbout(chatId);
 }
 
 async function handleImage(chatId, prompt) {
@@ -521,7 +510,7 @@ async function handleAbout(chatId) {
     '• 👁️ *Vision* — send a photo and I analyze / extract info from it\n' +
     '• 🎨 *Image generation* — `/image <prompt>` creates images on demand\n' +
     '• 🧠 *100+ models* — browse all OpenRouter models, filter free ones\n\n' +
-    '🆓 *Free by default* — uses free models automatically to keep costs at $0\n\n' +
+    '💲 *Cost-efficient* — defaults to the cheapest DeepSeek model, image gen picks the lowest-cost model\n\n' +
     '⚙️ *Architecture:*\n' +
     '• Telegram webhook → Vercel serverless function\n' +
     '• OpenRouter API handles text, vision & images with one key\n' +
