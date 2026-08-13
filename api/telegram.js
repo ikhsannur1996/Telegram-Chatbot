@@ -25,9 +25,9 @@ const FALLBACK_TEXT = [
 ];
 
 const FALLBACK_IMAGE = [
-  { id: 'openai/dall-e-3', name: '🖌️ DALL-E 3', price: 0.04 },
-  { id: 'black-forest-labs/flux-1.1-pro', name: '🎨 Flux 1.1 Pro', price: 0.04 },
-  { id: 'stabilityai/sdxl-turbo', name: '✨ SDXL Turbo', price: 0.003 },
+  { id: 'google/gemini-2.5-flash-image', name: '🖼️ Gemini 2.5 Flash Image', price: 0.0000003 },
+  { id: 'google/gemini-3.1-flash-image', name: '🖼️ Gemini 3.1 Flash Image', price: 0.0000005 },
+  { id: 'openai/gpt-5-image-mini', name: '🖼️ GPT-5 Image Mini', price: 0.0000025 },
 ];
 
 // ─── Fetch models live from OpenRouter ─────────────────────────────────────────
@@ -48,29 +48,32 @@ async function fetchModels() {
       const p = m.pricing || {};
       const prompt = parseFloat(p.prompt);
       const completion = parseFloat(p.completion);
-      const imgPrice = parseFloat(p.image);
+      const inMods = m.architecture?.input_modalities || [];
+      const outMods = m.architecture?.output_modalities || [];
 
-      // Text-capable: has prompt+completion pricing (even if $0)
-      if (!isNaN(prompt) && !isNaN(completion)) {
-        const modalities = m.architecture?.input_modalities || [];
+      // Text-capable: outputs text
+      if (outMods.includes('text') && !isNaN(prompt) && !isNaN(completion)) {
         text.push({
           id: m.id,
           name: m.name || m.id,
           isFree: prompt === 0 && completion === 0,
           priceStr: prompt === 0 && completion === 0 ? '🆓 Free' : `$${fmt(prompt)}/$${fmt(completion)}`,
           prompt, completion,
-          supportsVision: modalities.includes('image'),
+          supportsVision: inMods.includes('image'),
         });
       }
-      // Image-generation: has image pricing
-      if (!isNaN(imgPrice)) {
-        image.push({
-          id: m.id,
-          name: m.name || m.id,
-          isFree: imgPrice === 0,
-          priceStr: imgPrice === 0 ? '🆓 Free' : `$${imgPrice.toFixed(3)}/img`,
-          price: imgPrice,
-        });
+      // Image-GENERATION: outputs images (not just vision-input)
+      if (outMods.includes('image')) {
+        const imgPrice = parseFloat(p.image ?? p.image_output ?? p.prompt);
+        if (!isNaN(imgPrice) && imgPrice > 0) { // skip auto/-1 pricing
+          image.push({
+            id: m.id,
+            name: m.name || m.id,
+            isFree: imgPrice === 0,
+            priceStr: imgPrice === 0 ? '🆓 Free' : `$${imgPrice.toFixed(6)}/img`,
+            price: imgPrice,
+          });
+        }
       }
     }
 
@@ -85,14 +88,14 @@ async function fetchModels() {
     // Fallback: convert static lists to dynamic format
     return {
       text: FALLBACK_TEXT.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.in}/$${m.out}`, prompt: m.in, completion: m.out, supportsVision: true })),
-      image: FALLBACK_IMAGE.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.price.toFixed(3)}/img`, price: m.price })),
+      image: FALLBACK_IMAGE.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.price.toFixed(6)}/img`, price: m.price })),
     };
   }
 }
 
 // ─── Default models ────────────────────────────────────────────────────────────
 const DEFAULT_TEXT_ID = 'deepseek/deepseek-v4-flash-0731'; // cheapest DeepSeek model
-const DEFAULT_IMAGE_ID = 'stabilityai/sdxl-turbo'; // cheapest image model
+const DEFAULT_IMAGE_ID = 'google/gemini-2.5-flash-image'; // cheapest image generation model
 
 // Pick the cheapest DeepSeek model as the default (excluding batch-only models).
 async function getDefaultTextModel() {
