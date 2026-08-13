@@ -1,8 +1,3 @@
-Here is the content for your `README.md` file. It documents the lightweight Telegram AI bot we built — deployable on Vercel, using OpenRouter for chat and images — and includes all the menu options, model selection, usage tracking, pricing, and the "Info" summary feature.
-
----
-
-```markdown
 # 🤖 Telegram AI Bot (OpenRouter + Vercel)
 
 A lightweight, serverless Telegram bot that connects to [OpenRouter](https://openrouter.ai) to provide **chat** and **image generation** through a clean interactive menu.
@@ -37,14 +32,14 @@ This bot is designed for **Vercel** (serverless) with no persistent server requi
 
 ```
 Telegram ──POST webhook──> Vercel (api/telegram.js)
-                              │
-                              ├── /start → Interactive menu
-                              ├── <text> → OpenRouter Chat Completion
-                              ├── /image <prompt> → OpenRouter Image Generation
-                              ├── /models → User model selection (Vercel KV)
-                              ├── /usage → OpenRouter auth/key endpoint
-                              ├── /price → Local price table
-                              └── /info → Combined summary
+                               │
+                               ├── /start → Interactive menu
+                               ├── <text> → OpenRouter Chat Completion
+                               ├── /image <prompt> → OpenRouter Image Generation
+                               ├── /models → User model selection (Vercel KV)
+                               ├── /usage → OpenRouter auth/key endpoint
+                               ├── /price → Local price table
+                               └── /info → Combined summary
 ```
 
 - **Stateless logic** – Each webhook invocation is independent.
@@ -59,8 +54,10 @@ Telegram ──POST webhook──> Vercel (api/telegram.js)
 telegram-ai-bot/
 ├── api/
 │   └── telegram.js       # Main serverless function
+├── .env.example          # Environment variable template
+├── .gitignore
 ├── package.json          # Dependencies (openai, @vercel/kv)
-├── vercel.json           # Optional function timeout config
+├── vercel.json           # Function timeout config
 └── README.md             # This file
 ```
 
@@ -72,7 +69,6 @@ telegram-ai-bot/
 2. **OpenRouter API Key** – Get from [OpenRouter Keys](https://openrouter.ai/keys).
 3. **Vercel Account** – For hosting (free tier works for chat; image generation may need Pro or faster models).
 4. **Vercel KV** – Create a database in the Vercel Dashboard (Storage → Upstash Redis).
-
 ---
 
 ## 🚀 Deployment on Vercel
@@ -80,187 +76,73 @@ telegram-ai-bot/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/telegram-ai-bot.git
-cd telegram-ai-bot
+git clone https://github.com/ikhsannur1996/Telegram-Chatbot.git
+cd Telegram-Chatbot
 ```
 
-### 2. Install Dependencies Locally (Optional)
+### 2. Set Environment Variables in Vercel
 
-```bash
-npm install
-```
+In Vercel Dashboard → your project → Settings → Environment Variables, add:
 
-### 3. Connect to Vercel
+| Key | Value |
+|-----|-------|
+| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token from @BotFather |
+| `OPENROUTER_API_KEY` | Your OpenRouter API key |
+| `KV_URL` | (Auto-added when you connect Vercel KV) |
+| `KV_REST_API_URL` | (Auto-added when you connect Vercel KV) |
+| `KV_REST_API_TOKEN` | (Auto-added when you connect Vercel KV) |
+
+### 3. Deploy
 
 Push the repo to GitHub, then import it into [Vercel](https://vercel.com). The build settings will be automatically detected.
 
-### 4. Set Environment Variables
+### 4. Set the Telegram Webhook
 
-In Vercel Dashboard → your project → **Settings → Environment Variables**, add:
-
-| Key                    | Value                                  |
-|------------------------|----------------------------------------|
-| `TELEGRAM_BOT_TOKEN`   | Your Telegram bot token                |
-| `OPENROUTER_API_KEY`   | Your OpenRouter API key                |
-| `KV_URL`               | (Auto-added when you connect Vercel KV) |
-| `KV_REST_API_URL`      | (Auto-added)                           |
-| `KV_REST_API_TOKEN`    | (Auto-added)                           |
-
-> `KV_URL`, `KV_REST_API_URL`, and `KV_REST_API_TOKEN` are automatically injected by Vercel once you attach a KV database to your project. No manual setup needed.
-
-### 5. Deploy
-
-Click **Deploy** in the Vercel dashboard (or use the CLI). After deployment, copy your function URL, e.g.:
+After deployment, visit the following URL in your browser to register the webhook:
 
 ```
-https://your-app.vercel.app/api/telegram
+https://<your-vercel-project>.vercel.app/api/telegram?register=1
 ```
 
-### 6. Set the Telegram Webhook
-
-Run this in your terminal (replace `<TOKEN>` and `<YOUR_URL>`):
+Or run manually:
 
 ```bash
-curl "https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/setWebhook?url=https://your-app.vercel.app/api/telegram"
+curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://<your-vercel-project>.vercel.app/api/telegram"}'
 ```
-
-You should see `{"ok":true,"result":true}` in the response.
 
 ---
 
-## 🧑‍💻 Bot Commands & Menu
-
-### Commands (type in Telegram)
+## 🤖 Available Commands
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Show the main interactive menu |
-| `/image <prompt>` | Generate an image (e.g., `/image a red car`) |
-| `/models` | Open model selection menu |
-| `/usage` | View OpenRouter usage and credit limit |
-| `/price` | Show pricing for the currently active models |
-| `/info` | Combined summary – models, usage, pricing |
-| `/about` | Information about the bot |
-| `/help` | List all commands and usage tips |
-
-### Interactive Menu (after /start)
-
-The main menu shows these buttons:
-
-```
-[ 💬 Chat ]  [ 🖼️ Image ]
-[ ⚙️ Models ]  [ 📊 Usage ]
-[ 💲 Price ]  [ ℹ️ Info ]
-```
-
-- **💬 Chat** – Reminds the user that they can simply type to chat.
-- **🖼️ Image** – Explains how to use `/image` command.
-- **⚙️ Models** – Opens sub-menu with text and image model selection.
-- **📊 Usage** – Opens live usage/limit view.
-- **💲 Price** – Opens pricing for current models.
-- **ℹ️ Info** – Shows combined summary (models, usage, price).
-- **❓ Help** – Displays full instructions (optional, but included in the code).
-
-### Model Selection Menu
-
-```
-⚙️ *Model Selection*
-
-Current text: openai/gpt-4o-mini
-Current image: black-forest-labs/flux-1.1-pro
-
-[ 📝 Text Models ]
-[ 🎨 Image Models ]
-[ 🔙 Back to Main ]
-```
-
-Tapping a model updates the user's preference in Vercel KV and shows a confirmation.
+| `/start` | Show welcome message and interactive menu |
+| `/image <prompt>` | Generate an image from a text prompt |
+| `/models` | Select text and image models |
+| `/usage` | Check OpenRouter credit usage |
+| `/price` | View pricing for all models |
+| `/info` | Overall summary of models, usage, and pricing |
 
 ---
 
-## 🛠 Configuration
+## 💬 Text Models
 
-### Default Models
+| Model ID | Label | Input / 1M | Output / 1M |
+|----------|-------|------------|-------------|
+| `openai/gpt-4o-mini` | ⚡ GPT-4o Mini | $0.15 | $0.60 |
+| `anthropic/claude-3.5-sonnet` | 🧠 Claude 3.5 Sonnet | $3.00 | $15.00 |
+| `google/gemini-2.0-flash-001` | 🚀 Gemini 2.0 Flash | $0.10 | $0.40 |
+| `deepseek/deepseek-r1` | 🔍 DeepSeek R1 | $0.55 | $2.19 |
+| `meta-llama/llama-3.3-70b-instruct` | 🦙 Llama 3.3 70B | $0.25 | $1.00 |
 
-In `api/telegram.js`, you can change the default models:
+## 🎨 Image Models
 
-```javascript
-const DEFAULT_TEXT_MODEL = "openai/gpt-4o-mini";
-const DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-1.1-pro";
-```
-
-### Available Models (with Pricing)
-
-Text models are stored as objects with `id`, `label`, `input`, and `output` (prices per 1M tokens in USD):
-
-| Model ID | Friendly Label | Input (USD / 1M) | Output (USD / 1M) |
-|----------|---------------|------------------|-------------------|
-| `openai/gpt-4o-mini` | ⚡ GPT-4o Mini | 0.15 | 0.60 |
-| `anthropic/claude-3.5-sonnet` | 🧠 Claude 3.5 Sonnet | 3.00 | 15.00 |
-| `google/gemini-2.0-flash-001` | 🚀 Gemini 2.0 Flash | 0.10 | 0.40 |
-| `deepseek/deepseek-r1` | 🔍 DeepSeek R1 | 0.55 | 2.19 |
-| `meta-llama/llama-3.3-70b-instruct` | 🦙 Llama 3.3 70B | 0.25 | 1.00 |
-
-Image models have a flat price per image (USD):
-
-| Model ID | Friendly Label | Price per image (USD) |
-|----------|---------------|------------------------|
-| `openai/dall-e-3` | 🖌️ DALL-E 3 | 0.04 |
-| `black-forest-labs/flux-1.1-pro` | 🎨 Flux 1.1 Pro | 0.04 |
-| `stabilityai/sdxl-turbo` | ✨ SDXL Turbo | 0.003 |
-
-To add more models, simply append them to the `TEXT_MODELS` or `IMAGE_MODELS` arrays in `api/telegram.js`.
-
----
-
-## 📊 Example Outputs
-
-### Chat Response
-
-```
-User: What is the capital of France?
-Bot: The capital of France is Paris.
-```
-
-### Image Generation
-
-```
-User: /image a futuristic city at sunset
-Bot: (sends photo) 🖼️ Generated with black-forest-labs/flux-1.1-pro
-```
-
-### Usage View
-
-```
-📊 OpenRouter Usage
-
-Used: $0.1250
-Limit: $1.0000
-Plan: Free
-```
-
-### Info Summary
-
-```
-📊 Overall Summary
-
-🤖 Active Models:
-💬 Text: `openai/gpt-4o-mini`
-🖼️ Image: `black-forest-labs/flux-1.1-pro`
-
-💰 Pricing:
-Text: 0.15 USD / 1M input, 0.60 USD / 1M output
-Image: 0.04 USD per image
-
-📈 Usage:
-Spent: 0.1250 USD
-Limit: 1.0000 USD
-Plan: Free
-Progress: ███░░░░░░░  12.5%
-
-Tip: Use /models to switch models anytime.
-```
-
+| Model ID | Label | Price per image |
+|----------|-------|----------------|
+| `openai/dall-e-3` | 🖌️ DALL-E 3 | $0.04 |
+| `black-forest-labs/flux-1.1-pro` | 🎨 Flux 1.1 Pro | $0.04 |
 ---
 
 ## ⏱️ Vercel Timeout Considerations
@@ -268,19 +150,7 @@ Tip: Use /models to switch models anytime.
 - **Free tier** has a **10-second** function timeout.
 - Image generation (e.g., Flux) may take longer than 10 seconds.
 - The code sets `maxDuration` to 60 seconds (requires **Vercel Pro**).
-- For free tier, use faster image models like `stabilityai/sdxl-turbo` or change the prompt to be simpler.
-
-You can set `maxDuration` in `vercel.json`:
-
-```json
-{
-  "functions": {
-    "api/telegram.js": {
-      "maxDuration": 60
-    }
-  }
-}
-```
+- For free tier, use faster image models like `stabilityai/sdxl-turbo` or simpler prompts.
 
 ---
 
@@ -288,7 +158,7 @@ You can set `maxDuration` in `vercel.json`:
 
 | Problem | Possible Fix |
 |---------|--------------|
-| Webhook not responding | Re-set the webhook URL using the `curl` command above. |
+| Webhook not responding | Re-set the webhook URL via `?register=1` or the `curl` command above. |
 | `/usage` shows error | Verify your OpenRouter API key is correct and not expired. |
 | Image generation timeout | Use a faster model or upgrade to Vercel Pro. |
 | Model selection not saving | Ensure Vercel KV is connected to your project and env vars are set. |
@@ -309,19 +179,13 @@ You can set `maxDuration` in `vercel.json`:
 
 ## 📄 License
 
-This project is open-source and available under the **MIT License**. Feel free to use, modify, and distribute it.
+This project is open-source and available under the **MIT License**.
 
 ---
 
 ## 👤 Credits
 
-Built with [OpenRouter](https://openrouter.ai), [Vercel](https://vercel.com), and [Vercel KV](https://vercel.com/docs/storage/vercel-kv). 
+Built with [OpenRouter](https://openrouter.ai), [Vercel](https://vercel.com), and [Vercel KV](https://vercel.com/docs/storage/vercel-kv).
 
----
-
-**Enjoy your bot!** If you find it useful, consider giving the repository a ⭐.
-```
-
----
-
-Let me know if you'd like me to include the full `api/telegram.js` code directly in the README or if you prefer to keep the README as a high-level documentation file.
+**Enjoy your bot!** ⭐
+| `stabilityai/sdxl-turbo` | ✨ SDXL Turbo | $0.003 |
