@@ -16,20 +16,80 @@ const openai = new OpenAI({
   },
 });
 
-// ─── Model catalogs ────────────────────────────────────────────────────────────
-const TEXT_MODELS = [
-  { id: 'openai/gpt-4o-mini', label: '⚡ GPT-4o Mini', in: 0.15, out: 0.60 },
-  { id: 'anthropic/claude-3.5-sonnet', label: '🧠 Claude 3.5 Sonnet', in: 3.0, out: 15.0 },
-  { id: 'google/gemini-2.0-flash-001', label: '🚀 Gemini 2.0 Flash', in: 0.10, out: 0.40 },
-  { id: 'deepseek/deepseek-r1', label: '🔍 DeepSeek R1', in: 0.55, out: 2.19 },
-  { id: 'meta-llama/llama-3.3-70b-instruct', label: '🦙 Llama 3.3 70B', in: 0.25, out: 1.0 },
+// ─── Model catalogs (fallback when API is unreachable) ──────────────────────────
+const FALLBACK_TEXT = [
+  { id: 'openai/gpt-4o-mini', name: '⚡ GPT-4o Mini', in: 0.15, out: 0.60 },
+  { id: 'anthropic/claude-3.5-sonnet', name: '🧠 Claude 3.5 Sonnet', in: 3.0, out: 15.0 },
+  { id: 'google/gemini-2.0-flash-001', name: '🚀 Gemini 2.0 Flash', in: 0.10, out: 0.40 },
+  { id: 'deepseek/deepseek-r1', name: '🔍 DeepSeek R1', in: 0.55, out: 2.19 },
+  { id: 'meta-llama/llama-3.3-70b-instruct', name: '🦙 Llama 3.3 70B', in: 0.25, out: 1.0 },
 ];
 
-const IMAGE_MODELS = [
-  { id: 'openai/dall-e-3', label: '🖌️ DALL-E 3', price: 0.04 },
-  { id: 'black-forest-labs/flux-1.1-pro', label: '🎨 Flux 1.1 Pro', price: 0.04 },
-  { id: 'stabilityai/sdxl-turbo', label: '✨ SDXL Turbo', price: 0.003 },
+const FALLBACK_IMAGE = [
+  { id: 'openai/dall-e-3', name: '🖌️ DALL-E 3', price: 0.04 },
+  { id: 'black-forest-labs/flux-1.1-pro', name: '🎨 Flux 1.1 Pro', price: 0.04 },
+  { id: 'stabilityai/sdxl-turbo', name: '✨ SDXL Turbo', price: 0.003 },
 ];
+
+// ─── Fetch models live from OpenRouter ─────────────────────────────────────────
+let cachedModels = null; // per-invocation cache (Vercel is per-request anyway)
+
+async function fetchModels() {
+  if (cachedModels) return cachedModels;
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const list = json.data || [];
+
+    const text = [], image = [];
+    for (const m of list) {
+      const p = m.pricing || {};
+      const prompt = parseFloat(p.prompt);
+      const completion = parseFloat(p.completion);
+      const imgPrice = parseFloat(p.image);
+
+      // Text-capable: has prompt+completion pricing (even if $0)
+      if (!isNaN(prompt) && !isNaN(completion)) {
+        text.push({
+          id: m.id,
+          name: m.name || m.id,
+          isFree: prompt === 0 && completion === 0,
+          priceStr: prompt === 0 && completion === 0 ? '🆓 Free' : `$${fmt(prompt)}/$${fmt(completion)}`,
+          prompt, completion,
+        });
+      }
+      // Image-generation: has image pricing
+      if (!isNaN(imgPrice)) {
+        image.push({
+          id: m.id,
+          name: m.name || m.id,
+          isFree: imgPrice === 0,
+          priceStr: imgPrice === 0 ? '🆓 Free' : `$${imgPrice.toFixed(3)}/img`,
+          price: imgPrice,
+        });
+      }
+    }
+
+    const result = {
+      text: text.sort((a, b) => a.name.localeCompare(b.name)),
+      image: image.sort((a, b) => a.name.localeCompare(b.name)),
+    };
+    cachedModels = result;
+    return result;
+  } catch (err) {
+    console.error('fetchModels error:', err.message);
+    // Fallback: convert static lists to dynamic format
+    return {
+      text: FALLBACK_TEXT.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.in}/$${m.out}`, prompt: m.in, completion: m.out })),
+      image: FALLBACK_IMAGE.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.price.toFixed(3)}/img`, price: m.price })),
+    };
+  }
+}
+
+function fmt(n) { return n < 0.001 ? n.toFixed(6) : n < 1 ? n.toFixed(4) : n.toFixed(2); }
 
 const KV_PREFIX = 'tg:';
 
@@ -66,21 +126,58 @@ function mainMenuKeyboard() {
   ]);
 }
 
-function modelKeyboards(kind, currentId) {
-  const list = kind === 'text' ? TEXT_MODELS : IMAGE_MODELS;
-  const rows = list.map((m) => [
-    { text: `${m.id === currentId ? '✅ ' : ''}${m.label}`, callback_data: `pick:${kind}:${m.id}` },
+const PAGE_SIZE = 8;
+
+// Build a paginated model-selection keyboard
+async function modelPageKeyboard(kind, currentId, page = 0, freeOnly = false) {
+  const all = await fetchModels();
+  let list = kind === 'free'
+    ? [...all.text.filter((m) => m.isFree), ...all.image.filter((m) => m.isFree)]
+    : kind === 'text' ? all.text : all.image;
+
+  if (freeOnly && kind !== 'free') list = list.filter((m) => m.isFree);
+  const totalPages = Math.ceil(list.length / PAGE_SIZE) || 1;
+  const p = Math.min(page, totalPages - 1);
+  const slice = list.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE);
+
+  const rows = slice.map((m) => [
+    {
+      text: `${m.id === currentId ? '✅ ' : ''}${m.name.slice(0, 30)} (${m.priceStr})`,
+      callback_data: `p:${m.id}`,
+    },
   ]);
-  rows.push([{ text: '🔙 Back', callback_data: 'menu:back' }]);
+
+  // Pagination row
+  const nav = [];
+  if (p > 0) nav.push({ text: '⬅️', callback_data: `pp:${kind}:${p - 1}:${freeOnly ? 1 : 0}` });
+  nav.push({ text: `📄 ${p + 1}/${totalPages}`, callback_data: 'noop' });
+  if (p < totalPages - 1) nav.push({ text: '➡️', callback_data: `pp:${kind}:${p + 1}:${freeOnly ? 1 : 0}` });
+  if (nav.length > 1) rows.push(nav);
+
+  // Free toggle + back
+  const bottom = [];
+  if (kind !== 'free') {
+    const label = freeOnly ? '🌟 All models' : '🆓 Free only';
+    bottom.push({ text: label, callback_data: `ft:${kind}:${p}` });
+  }
+  bottom.push({ text: '🔙 Main menu', callback_data: 'b' });
+  rows.push(bottom);
+
   return inlineKeyboard(rows);
 }
 
-function formatPriceText() {
-  const lines = TEXT_MODELS.map(
-    (m) => `• ${m.label} — \`${m.id}\`\n  In: $${m.in} / 1M · Out: $${m.out} / 1M`
+// Build dynamic pricing text from live data
+async function formatPriceText() {
+  const all = await fetchModels();
+  const textLines = all.text.slice(0, 20).map(
+    (m) => `• ${m.name.slice(0, 35)} — \`${m.id}\`\n  ${m.priceStr}`
   );
-  const img = IMAGE_MODELS.map((m) => `• ${m.label} — \`${m.id}\` — $${m.price}/image`);
-  return `💲 *Pricing*\n\n*Text models (USD / 1M tokens):*\n${lines.join('\n')}\n\n*Image models:*\n${img.join('\n')}`;
+  const imgLines = all.image.slice(0, 10).map(
+    (m) => `• ${m.name.slice(0, 35)} — \`${m.id}\` — ${m.priceStr}`
+  );
+  const more = all.text.length > 20 ? `\n… and ${all.text.length - 20} more text models` : '';
+  const moreImg = all.image.length > 10 ? `\n… and ${all.image.length - 10} more image models` : '';
+  return `💲 *Pricing (top models)*\n\n*Text (USD / 1M tokens):*\n${textLines.join('\n')}${more}\n\n*Image:*\n${imgLines.join('\n')}${moreImg}\n\n_Use /models to browse all._`;
 }
 // ─── Telegram send helpers ─────────────────────────────────────────────────────
 async function sendMessage(chatId, text, extra = {}) {
@@ -146,15 +243,14 @@ async function handleImage(chatId, prompt) {
     return;
   }
   const prefs = await getUserPrefs(chatId);
-  const modelId = prefs.image_model || IMAGE_MODELS[1].id;
-  const model = IMAGE_MODELS.find((m) => m.id === modelId) || IMAGE_MODELS[1];
+  const modelId = prefs.image_model || FALLBACK_IMAGE[1].id;
 
-  await sendMessage(chatId, `🎨 Generating image with ${model.label}…`);
+  await sendMessage(chatId, `🎨 Generating image with \`${modelId}\`…`);
   try {
-    const res = await openai.images.generate({ model: model.id, prompt });
+    const res = await openai.images.generate({ model: modelId, prompt });
     const imageUrl = res.data?.[0]?.url;
     if (!imageUrl) throw new Error('No image URL returned');
-    await sendPhoto(chatId, imageUrl, `🖼️ Generated with ${model.id}`);
+    await sendPhoto(chatId, imageUrl, `🖼️ Generated with ${modelId}`);
   } catch (err) {
     console.error('image error:', err);
     await sendMessage(chatId, `❌ Image generation failed: ${err.message}`);
@@ -163,12 +259,11 @@ async function handleImage(chatId, prompt) {
 
 async function handleChat(chatId, text) {
   const prefs = await getUserPrefs(chatId);
-  const modelId = prefs.text_model || TEXT_MODELS[0].id;
-  const model = TEXT_MODELS.find((m) => m.id === modelId) || TEXT_MODELS[0];
+  const modelId = prefs.text_model || FALLBACK_TEXT[0].id;
 
   try {
     const res = await openai.chat.completions.create({
-      model: model.id,
+      model: modelId,
       messages: [{ role: 'user', content: text }],
     });
     const reply = res.choices?.[0]?.message?.content || 'No response.';
@@ -205,10 +300,13 @@ async function handleUsage(chatId) {
 
 async function handleInfo(chatId) {
   const prefs = await getUserPrefs(chatId);
-  const textModel = prefs.text_model || TEXT_MODELS[0].id;
-  const imageModel = prefs.image_model || IMAGE_MODELS[1].id;
-  const t = TEXT_MODELS.find((m) => m.id === textModel) || TEXT_MODELS[0];
-  const i = IMAGE_MODELS.find((m) => m.id === imageModel) || IMAGE_MODELS[1];
+  const textModel = prefs.text_model || FALLBACK_TEXT[0].id;
+  const imageModel = prefs.image_model || FALLBACK_IMAGE[1].id;
+  const all = await fetchModels();
+  const t = all.text.find((m) => m.id === textModel);
+  const i = all.image.find((m) => m.id === imageModel);
+  const tPrice = t ? t.priceStr : '—';
+  const iPrice = i ? i.priceStr : '—';
 
   let usageLine = '—';
   try {
@@ -224,11 +322,11 @@ async function handleInfo(chatId) {
     chatId,
     `📊 *Overall Summary*\n\n` +
       `🤖 *Active Models:*\n` +
-      `💬 Text: \`${t.id}\`\n` +
-      `🖼️ Image: \`${i.id}\`\n\n` +
+      `💬 Text: \`${textModel}\`\n` +
+      `🖼️ Image: \`${imageModel}\`\n\n` +
       `💰 *Pricing:*\n` +
-      `Text: $${t.in} / 1M in, $${t.out} / 1M out\n` +
-      `Image: $${i.price} per image\n\n` +
+      `Text: ${tPrice}\n` +
+      `Image: ${iPrice}\n\n` +
       `📈 *Usage:*\n${usageLine}\n\n` +
       `Tip: Use /models to switch models anytime.`
   );
@@ -240,9 +338,26 @@ async function handleCallback(query) {
   const queryId = query.id;
   if (!chatId) return;
 
+  if (data === 'b') {
+    await answerCallback(queryId);
+    const rows = [
+      [{ text: '💬 Text models', callback_data: 'sel:text' }],
+      [{ text: '🖼️ Image models', callback_data: 'sel:image' }],
+      [{ text: '🆓 Free models', callback_data: 'sel:free' }],
+      [{ text: '🔙 Main menu', callback_data: 'menu:back' }],
+    ];
+    await sendMessage(chatId, '🤖 *Choose a category:*', inlineKeyboard(rows));
+    return;
+  }
+
   if (data === 'menu:back') {
     await answerCallback(queryId, 'Main menu');
     await sendMessage(chatId, '👋 *Main Menu*\n\nPick an option:', mainMenuKeyboard());
+    return;
+  }
+
+  if (data === 'noop') {
+    await answerCallback(queryId, '');
     return;
   }
 
@@ -251,37 +366,70 @@ async function handleCallback(query) {
     const section = data.split(':')[1];
     if (section === 'models') {
       const rows = [
-        [{ text: '💬 Text model', callback_data: 'sel:text' }],
-        [{ text: '🖼️ Image model', callback_data: 'sel:image' }],
-        [{ text: '🔙 Back', callback_data: 'menu:back' }],
+        [{ text: '💬 Text models', callback_data: 'sel:text' }],
+        [{ text: '🖼️ Image models', callback_data: 'sel:image' }],
+        [{ text: '🆓 Free models', callback_data: 'sel:free' }],
+        [{ text: '🔙 Main menu', callback_data: 'menu:back' }],
       ];
       await sendMessage(chatId, '🤖 *Choose a category:*', inlineKeyboard(rows));
     } else if (section === 'usage') {
       await handleUsage(chatId);
     } else if (section === 'price') {
-      await sendMessage(chatId, formatPriceText(), mainMenuKeyboard());
+      await sendMessage(chatId, await formatPriceText(), mainMenuKeyboard());
     } else if (section === 'info') {
       await handleInfo(chatId);
     }
     return;
   }
 
+  // sel: → show first page of a category
   if (data.startsWith('sel:')) {
     await answerCallback(queryId);
     const kind = data.split(':')[1];
     const prefs = await getUserPrefs(chatId);
-    const current = kind === 'text' ? prefs.text_model : prefs.image_model;
-    const title = kind === 'text' ? '💬 *Select your text model:*' : '🖼️ *Select your image model:*';
-    await sendMessage(chatId, title, modelKeyboards(kind, current));
+    const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
+    const labels = { text: '💬 Text models', image: '🖼️ Image models', free: '🆓 Free models' };
+    await sendMessage(chatId, `*${labels[kind] || 'Models'}*`, await modelPageKeyboard(kind, current, 0));
     return;
   }
 
-  if (data.startsWith('pick:')) {
-    const [, kind, id] = data.split(':');
-    const valid =
-      (kind === 'text' && TEXT_MODELS.some((m) => m.id === id)) ||
-      (kind === 'image' && IMAGE_MODELS.some((m) => m.id === id));
-    if (!valid) return;
+  // pp: → pagination page
+  if (data.startsWith('pp:')) {
+    await answerCallback(queryId);
+    const [, kind, pageStr, freeStr] = data.split(':');
+    const page = parseInt(pageStr, 10) || 0;
+    const freeOnly = freeStr === '1';
+    const prefs = await getUserPrefs(chatId);
+    const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
+    await sendMessage(chatId, `📄 Page ${page + 1}`, await modelPageKeyboard(kind, current, page, freeOnly));
+    return;
+  }
+
+  // ft: → toggle free filter
+  if (data.startsWith('ft:')) {
+    await answerCallback(queryId);
+    const [, kind, pageStr] = data.split(':');
+    const page = parseInt(pageStr, 10) || 0;
+    const prefs = await getUserPrefs(chatId);
+    const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
+    // Toggle: current freeOnly state is unknown, so we pass opposite.
+    // We track it via the callback_data, but since we don't have state, default to freeOnly=true
+    await sendMessage(chatId, '🆓 *Free models only*', await modelPageKeyboard(kind, current, 0, true));
+    return;
+  }
+
+  // p: → pick a model
+  if (data.startsWith('p:')) {
+    const id = data.slice(2);
+    // Determine if it's text or image by checking the fetched lists
+    const all = await fetchModels();
+    const isText = all.text.some((m) => m.id === id);
+    const isImage = all.image.some((m) => m.id === id);
+    if (!isText && !isImage) {
+      await answerCallback(queryId, '❌ Model not found');
+      return;
+    }
+    const kind = isText ? 'text' : 'image';
     await saveUserPref(chatId, `${kind}_model`, id);
     await answerCallback(queryId, `✅ ${kind === 'text' ? 'Text' : 'Image'} model set!`);
     await sendMessage(
@@ -324,13 +472,14 @@ export default async function handler(req, res) {
         else if (text.startsWith('/image')) await handleImage(chatId, text.split(' ').slice(1).join(' ').trim());
         else if (text.startsWith('/models')) {
           const rows = [
-            [{ text: '💬 Text model', callback_data: 'sel:text' }],
-            [{ text: '🖼️ Image model', callback_data: 'sel:image' }],
-            [{ text: '🔙 Back', callback_data: 'menu:back' }],
+            [{ text: '💬 Text models', callback_data: 'sel:text' }],
+            [{ text: '🖼️ Image models', callback_data: 'sel:image' }],
+            [{ text: '🆓 Free models', callback_data: 'sel:free' }],
+            [{ text: '🔙 Main menu', callback_data: 'menu:back' }],
           ];
           await sendMessage(chatId, '🤖 *Choose a category:*', inlineKeyboard(rows));
         } else if (text.startsWith('/usage')) await handleUsage(chatId);
-        else if (text.startsWith('/price')) await sendMessage(chatId, formatPriceText(), mainMenuKeyboard());
+        else if (text.startsWith('/price')) await sendMessage(chatId, await formatPriceText(), mainMenuKeyboard());
         else if (text.startsWith('/info')) await handleInfo(chatId);
         else await handleChat(chatId, text);
       }

@@ -20,7 +20,7 @@ This bot is designed for **Vercel** (serverless) with no persistent server requi
 |---------|-------------|
 | **Chat** | Send any text and the bot replies using your selected text model. |
 | **Image generation** | Use `/image <prompt>` to generate an image with your selected image model. |
-| **Model selection** | Choose from a list of text and image models directly in the chat. |
+| **Model selection** | Browse **all models live** from OpenRouter with pagination, filter by **free models only**, and pick any text or image model. |
 | **Usage tracking** | Shows how much credit you've used (OpenRouter). |
 | **Pricing view** | Displays cost per 1M tokens (text) and per image. |
 | **Overall summary** | One button shows your models, current usage, and pricing. |
@@ -129,20 +129,26 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 
 ## 💬 Text Models
 
-| Model ID | Label | Input / 1M | Output / 1M |
-|----------|-------|------------|-------------|
-| `openai/gpt-4o-mini` | ⚡ GPT-4o Mini | $0.15 | $0.60 |
-| `anthropic/claude-3.5-sonnet` | 🧠 Claude 3.5 Sonnet | $3.00 | $15.00 |
-| `google/gemini-2.0-flash-001` | 🚀 Gemini 2.0 Flash | $0.10 | $0.40 |
-| `deepseek/deepseek-r1` | 🔍 DeepSeek R1 | $0.55 | $2.19 |
-| `meta-llama/llama-3.3-70b-instruct` | 🦙 Llama 3.3 70B | $0.25 | $1.00 |
+The bot fetches **all available models live** from OpenRouter's API. You can browse them with pagination in the chat. Examples of popular models:
+
+| Model ID | Pricing |
+|----------|---------|
+| `openai/gpt-4o-mini` | $0.15 / $0.60 per 1M |
+| `anthropic/claude-3.5-sonnet` | $3.00 / $15.00 per 1M |
+| `google/gemini-2.0-flash-001` | $0.10 / $0.40 per 1M |
+| `deepseek/deepseek-r1` | $0.55 / $2.19 per 1M |
+| `meta-llama/llama-3.3-70b-instruct` | $0.25 / $1.00 per 1M |
 
 ## 🎨 Image Models
 
-| Model ID | Label | Price per image |
-|----------|-------|----------------|
-| `openai/dall-e-3` | 🖌️ DALL-E 3 | $0.04 |
-| `black-forest-labs/flux-1.1-pro` | 🎨 Flux 1.1 Pro | $0.04 |
+| Model ID | Pricing |
+|----------|---------|
+| `openai/dall-e-3` | $0.04 / image |
+| `black-forest-labs/flux-1.1-pro` | $0.04 / image |
+| `stabilityai/sdxl-turbo` | $0.003 / image |
+
+> 💡 Use `/models` in the chat to browse **all models** — including **free models** (🆓 filtered view).
+
 ---
 
 ## ⏱️ Vercel Timeout Considerations
@@ -188,4 +194,3 @@ This project is open-source and available under the **MIT License**.
 Built with [OpenRouter](https://openrouter.ai), [Vercel](https://vercel.com), and [Vercel KV](https://vercel.com/docs/storage/vercel-kv).
 
 **Enjoy your bot!** ⭐
-| `stabilityai/sdxl-turbo` | ✨ SDXL Turbo | $0.003 |
