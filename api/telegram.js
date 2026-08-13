@@ -315,11 +315,12 @@ async function setWebhook(host) {
   return { ...result, webhookUrl, domain };
 }
 
-// ─── Register bot commands (autocomplete when typing /) ───────────────────────
+// ─── Register bot commands + menu button (bottom of chat, like BotFather) ──────
 async function setBotCommands() {
+  // 1. Set autocomplete commands when typing /
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`;
   const commands = [
-    { command: 'start', description: 'Start the bot and show welcome menu' },
+    { command: 'start', description: 'Start the bot and show the About info' },
     { command: 'image', description: 'Generate an image from a prompt' },
     { command: 'models', description: 'Browse and select AI models' },
     { command: 'usage', description: 'Check OpenRouter credit usage' },
@@ -332,6 +333,15 @@ async function setBotCommands() {
     body: JSON.stringify({ commands }),
   });
   const result = await res.json();
+
+  // 2. Set the menu button at the bottom of the chat (like BotFather)
+  const menuUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`;
+  await fetch(menuUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ menu_button: { type: 'commands' } }),
+  });
+
   return { ...result, commands: commands.map(c => '/' + c.command) };
 }
 
