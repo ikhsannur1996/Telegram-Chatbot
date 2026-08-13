@@ -72,6 +72,78 @@ telegram-ai-bot/
 3. **Vercel Account** – For hosting (free tier works for chat; image generation may need Pro or faster models).
 4. **Vercel KV** – Create a database in the Vercel Dashboard (Storage → Upstash Redis).
 ---
+---
+
+## 🔑 How to Get Your API Keys
+
+This bot needs two API keys: a **Telegram Bot Token** and an **OpenRouter API Key**. Here's exactly how to get both.
+
+---
+
+### 1️⃣ Telegram Bot Token (from @BotFather)
+
+1. **Open Telegram** and search for [@BotFather](https://t.me/BotFather) (the official, verified bot with a blue check ✓).
+2. **Start a chat** with BotFather and send the command:
+   ```
+   /newbot
+   ```
+3. BotFather will ask for a **name** for your bot — this is the display name people see. Example: `My AI Assistant`
+4. It will then ask for a **username** for your bot. This must:
+   - End with the word `bot` (e.g. `my_ai_assistant_bot`)
+   - Be **unique** across all of Telegram
+5. If successful, BotFather replies with a message containing your **token**, which looks like:
+   ```
+   1234567890:AAHfKx9mExampleToken...abc123deF
+   ```
+   ⚠️ Keep this token **secret** — anyone who has it can control your bot.
+
+6. *(Optional but recommended)* Set what your bot does — send `/setdescription` and `/setabouttext`.
+7. *(Optional)* To see a list of all your bots: send `/mybots`.
+
+> **💡 Tip:** The token is what you'll put in the `TELEGRAM_BOT_TOKEN` environment variable on Vercel.
+
+---
+
+### 2️⃣ OpenRouter API Key (AI models)
+
+1. **Create an account** at [openrouter.ai](https://openrouter.ai) (Sign up with Google, GitHub, or email — free).
+2. After logging in, open the **Keys** page: [openrouter.ai/keys](https://openrouter.ai/keys).
+3. Click **"Create Key"** (or "Keys" → "Create Key").
+   - Enter a name for the key, e.g. `telegram-bot`.
+   - *(Optional)* Set a **credit limit** so you never accidentally spend more than you want.
+4. Copy the key that is generated. It looks like:
+   ```
+   sk-or-v1-a1b2c3d4e5f6...
+   ```
+   ⚠️ This key is shown **only once** — copy it immediately and store it somewhere safe.
+
+> **💡 Tip:** The key is what you'll put in the `OPENROUTER_API_KEY` environment variable on Vercel.
+
+**About credits (important for free usage):**
+- OpenRouter gives you a small **free credit** to start with.
+- Many models are **completely free** (`🆓`) — this bot defaults to free models.
+- Paid models use your **credit balance** (you can add credit/Credit Cards in your OpenRouter dashboard).
+- You can see your usage & limit in the bot with `/usage`.
+
+---
+
+### 🧪 Testing your keys locally (optional)
+
+```bash
+# 1. Create a local .env file from the template
+cp .env.example .env
+
+# 2. Fill in your real keys:
+# TELEGRAM_BOT_TOKEN=1234567890:AA...
+# OPENROUTER_API_KEY=sk-or-v1-...
+
+# 3. Verify OpenRouter works (returns model names):
+curl -s https://openrouter.ai/api/v1/models \
+  -H "Authorization: Bearer sk-or-v1-YOUR_KEY" \
+  | head -c 300
+```
+
+---
 
 ## 🚀 Deployment on Vercel
 

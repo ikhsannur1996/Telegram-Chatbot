@@ -2,7 +2,11 @@
   "name": "telegram-ai-bot",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Lightweight Telegram AI bot using OpenRouter, deployable on Vercel",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "openai": "^4.73.0",
     "@vercel/kv": "^2.0.0"

@@ -91,6 +91,33 @@ async function fetchModels() {
   }
 }
 
+// ─── Default models: prefer free ones ─────────────────────────────────────────
+const DEFAULT_FREE_TEXT_ID = 'meta-llama/llama-3.3-70b-instruct';
+const DEFAULT_FREE_IMAGE_ID = 'stabilityai/sdxl-turbo';
+
+// Pick a free text model; fall back to a known good model if no free ones exist.
+async function getDefaultTextModel() {
+  try {
+    const all = await fetchModels();
+    const freeText = all.text.filter((m) => m.isFree && m.supportsVision !== false);
+    if (freeText.length > 0) return freeText[0].id;
+    if (all.text.length > 0) return all.text[0].id;
+  } catch {}
+  return DEFAULT_FREE_TEXT_ID;
+}
+
+// Pick a free image model.
+async function getDefaultImageModel() {
+  try {
+    const all = await fetchModels();
+    const freeImg = all.image.filter((m) => m.isFree);
+    if (freeImg.length > 0) return freeImg[0].id;
+    if (all.image.length > 0) return all.image[0].id;
+  } catch {}
+  return DEFAULT_FREE_IMAGE_ID;
+}
+
+
 function fmt(n) { return n < 0.001 ? n.toFixed(6) : n < 1 ? n.toFixed(4) : n.toFixed(2); }
 
 const KV_PREFIX = 'tg:';
@@ -246,15 +273,20 @@ async function handleVision(chatId, photoArray, caption) {
     return;
   }
 
-  // Pick a vision-capable model
+  // Pick a vision-capable model (prefer free)
   const prefs = await getUserPrefs(chatId);
   let modelId = prefs.text_model;
   const all = await fetchModels();
-  const model = all.text.find((m) => m.id === modelId);
-  if (!model || !model.supportsVision) {
-    // Fall back to first vision model that exists in the list
-    const fallback = VISION_FALLBACKS.find((id) => all.text.some((m) => m.id === id));
-    modelId = fallback || 'openai/gpt-4o-mini';
+  const userModel = all.text.find((m) => m.id === modelId);
+  if (!userModel || !userModel.supportsVision) {
+    // Try to find a free vision-capable model first
+    const freeVision = all.text.find((m) => m.isFree && m.supportsVision);
+    if (freeVision) {
+      modelId = freeVision.id;
+    } else {
+      const fallback = VISION_FALLBACKS.find((id) => all.text.some((m) => m.id === id));
+      modelId = fallback || 'openai/gpt-4o-mini';
+    }
   }
 
   const prompt = caption || 'Describe this image in detail. What do you see?';
@@ -304,12 +336,15 @@ async function handleImage(chatId, prompt) {
     return;
   }
   const prefs = await getUserPrefs(chatId);
-  const modelId = prefs.image_model || FALLBACK_IMAGE[1].id;
+  const modelId = prefs.image_model || (await getDefaultImageModel());
 
   await sendMessage(chatId, `🎨 Generating image with \`${modelId}\`…`);
   try {
-    const res = await openai.images.generate({ model: modelId, prompt });
-    const imageUrl = res.data?.[0]?.url;
+    const res = await openai.images.generate({ model: modelId, prompt, n: 1 });
+    const first = res.data?.[0];
+    if (!first) throw new Error('No image returned');
+    // OpenRouter may return a URL or base64 data
+    const imageUrl = first.url || (first.b64_json ? `data:image/png;base64,${first.b64_json}` : null);
     if (!imageUrl) throw new Error('No image URL returned');
     await sendPhoto(chatId, imageUrl, `🖼️ Generated with ${modelId}`);
   } catch (err) {
@@ -320,7 +355,7 @@ async function handleImage(chatId, prompt) {
 
 async function handleChat(chatId, text) {
   const prefs = await getUserPrefs(chatId);
-  const modelId = prefs.text_model || FALLBACK_TEXT[0].id;
+  const modelId = prefs.text_model || (await getDefaultTextModel());
 
   try {
     const res = await openai.chat.completions.create({
@@ -361,8 +396,8 @@ async function handleUsage(chatId) {
 
 async function handleInfo(chatId) {
   const prefs = await getUserPrefs(chatId);
-  const textModel = prefs.text_model || FALLBACK_TEXT[0].id;
-  const imageModel = prefs.image_model || FALLBACK_IMAGE[1].id;
+  const textModel = prefs.text_model || (await getDefaultTextModel());
+  const imageModel = prefs.image_model || (await getDefaultImageModel());
   const all = await fetchModels();
   const t = all.text.find((m) => m.id === textModel);
   const i = all.image.find((m) => m.id === imageModel);
@@ -450,7 +485,7 @@ async function handleCallback(query) {
     const prefs = await getUserPrefs(chatId);
     const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
     const labels = { text: '💬 Text models', image: '🖼️ Image models', free: '🆓 Free models' };
-    await sendMessage(chatId, `*${labels[kind] || 'Models'}*`, await modelPageKeyboard(kind, current, 0));
+    await sendMessage(chatId, `*${labels[kind] || 'Models'}*`, await modelPageKeyboard(kind, current, 0, kind === 'free' ? false : true));
     return;
   }
 
