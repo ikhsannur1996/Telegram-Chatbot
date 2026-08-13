@@ -144,13 +144,15 @@ function inlineKeyboard(rows) {
 function mainMenuKeyboard() {
   return inlineKeyboard([
     [
-      { text: '🤖 Models', callback_data: 'menu:models' },
+      { text: '💬 Chat', callback_data: 'menu:chat' },
+      { text: '🎨 Image', callback_data: 'menu:image' },
+    ],
+    [
+      { text: '🔍 Models', callback_data: 'menu:models' },
       { text: '📊 Usage', callback_data: 'menu:usage' },
     ],
     [
       { text: 'ℹ️ Info', callback_data: 'menu:info' },
-    ],
-    [
       { text: 'ℹ️ About', callback_data: 'menu:about' },
     ],
   ]);
@@ -321,6 +323,7 @@ async function setBotCommands() {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`;
   const commands = [
     { command: 'start', description: 'Start the bot and show the About info' },
+    { command: 'chat', description: 'Chat with the AI (or just send any text)' },
     { command: 'image', description: 'Generate an image from a prompt' },
     { command: 'models', description: 'Browse and select AI models' },
     { command: 'usage', description: 'Check OpenRouter credit usage' },
@@ -576,6 +579,10 @@ async function handleCallback(query) {
         [{ text: '🔙 Main menu', callback_data: 'menu:back' }],
       ];
       await sendMessage(chatId, '🤖 *Choose a category:*', inlineKeyboard(rows));
+    } else if (section === 'chat') {
+      await sendMessage(chatId, '💬 *Chat*\n\nJust send me any text and I\'ll reply using the default DeepSeek model!\n\nOr use /image to generate images, /models to change models, and more.', mainMenuKeyboard());
+    } else if (section === 'image') {
+      await sendMessage(chatId, '🎨 *Image Generation*\n\nUse `/image <prompt>` to generate images.\n\nExample: `/image a futuristic city at sunset`\n\nYou can change the image model in /models.', mainMenuKeyboard());
     } else if (section === 'usage') {
       await handleUsage(chatId);
     } else if (section === 'info') {
@@ -710,7 +717,9 @@ export default async function handler(req, res) {
 
       if (text) {
         if (text.startsWith('/start')) await handleStart(chatId);
-        else if (text.startsWith('/image')) await handleImage(chatId, text.split(' ').slice(1).join(' ').trim());
+        else if (text.startsWith('/chat')) {
+          await sendMessage(chatId, '💬 *Chat*\n\nJust send me any text and I\'ll reply using the AI!\n\nTip: /image <prompt> to generate images, /models to pick a model.', mainMenuKeyboard());
+        } else if (text.startsWith('/image')) await handleImage(chatId, text.split(' ').slice(1).join(' ').trim());
         else if (text.startsWith('/models')) {
           const rows = [
             [{ text: '💬 Text models', callback_data: 'sel:text' }],

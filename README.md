@@ -189,9 +189,10 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Show welcome message and interactive menu |
+| `/start` | Show the About info and welcome menu |
+| `/chat` | Chat with the AI (or just send any text) |
 | `/image <prompt>` | Generate an image from a text prompt |
-| `/models` | Select text and image models |
+| `/models` | Browse and select text and image models |
 | `/usage` | Check OpenRouter credit usage |
 | `/info` | Overall summary of models, usage, and pricing |
 
