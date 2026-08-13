@@ -696,7 +696,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, info });
     }
 
-    // Health check
+    // Health check — also registers commands so they're always up to date
+    setBotCommands().catch(() => {}); // fire-and-forget
     return res.status(200).json({ ok: true, status: 'Telegram bot webhook ready' });
   }
 
