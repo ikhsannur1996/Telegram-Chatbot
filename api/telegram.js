@@ -237,15 +237,16 @@ async function answerCallback(callbackQueryId, text) {
 
 async function setWebhook() {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook`;
-  const webhookUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}/api/telegram`
-    : '';
+  // VERCEL_URL is the deployment URL without protocol
+  const domain = process.env.VERCEL_URL;
+  const webhookUrl = domain ? `https://${domain}/api/telegram` : '';
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: webhookUrl }),
   });
-  return res.json();
+  const result = await res.json();
+  return { ...result, webhookUrl, domain };
 }
 // ─── Vision: get Telegram photo URL ────────────────────────────────────────────
 async function getTelegramFileUrl(fileId) {
@@ -537,10 +538,30 @@ async function handleCallback(query) {
 // ─── Webhook entrypoint ────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method === 'GET') {
+    // Register webhook endpoint
     if (req.query.register === '1') {
       const result = await setWebhook();
-      return res.status(200).json({ ok: true, result });
+      // Return HTML for easy debugging in browser
+      const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2em">
+        <h1>🤖 Telegram Bot Webhook</h1>
+        <p>${result.ok ? '✅ Webhook registered!' : '❌ Registration failed'}</p>
+        <pre>${JSON.stringify(result, null, 2)}</pre>
+        <hr>
+        <p>If <code>domain</code> is <code>null</code> or empty below, the webhook URL wasn't set correctly.</p>
+        <p>👉 <a href="/api/telegram?help=1">Check webhook info</a></p>
+      </body></html>`;
+      return res.status(200).setHeader('Content-Type', 'text/html').end(html);
     }
+
+    // Show current webhook status from Telegram
+    if (req.query.help === '1') {
+      const info = await fetch(
+        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo`
+      ).then(r => r.json());
+      return res.status(200).json({ ok: true, info });
+    }
+
+    // Health check
     return res.status(200).json({ ok: true, status: 'Telegram bot webhook ready' });
   }
 

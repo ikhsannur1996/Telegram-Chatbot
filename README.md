@@ -1,6 +1,6 @@
 # 🤖 Telegram AI Bot (OpenRouter + Vercel)
 
-A lightweight, serverless Telegram bot that connects to [OpenRouter](https://openrouter.ai) to provide **chat**, **image analysis**, and **image generation** through a clean interactive menu.
+A lightweight, serverless Telegram bot that connects to [OpenRouter](https://openrouter.ai) to provide **chat**, **image analysis**, and **image generation** through a clean interactive menu. Auto-deploys on Vercel with every `git push`.
 
 This bot is designed for **Vercel** (serverless) with no persistent server required. It includes:
 
