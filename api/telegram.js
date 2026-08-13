@@ -235,10 +235,10 @@ async function answerCallback(callbackQueryId, text) {
   });
 }
 
-async function setWebhook() {
+async function setWebhook(host) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook`;
-  // VERCEL_URL is the deployment URL without protocol
-  const domain = process.env.VERCEL_URL;
+  // Use explicit host from request header (production URL, not preview hash)
+  const domain = host || process.env.VERCEL_URL;
   const webhookUrl = domain ? `https://${domain}/api/telegram` : '';
   const res = await fetch(url, {
     method: 'POST',
@@ -540,7 +540,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     // Register webhook endpoint
     if (req.query.register === '1') {
-      const result = await setWebhook();
+      const result = await setWebhook(req.headers.host);
       // Return HTML for easy debugging in browser
       const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2em">
         <h1>🤖 Telegram Bot Webhook</h1>
