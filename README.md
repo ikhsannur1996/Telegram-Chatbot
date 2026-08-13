@@ -1,10 +1,11 @@
 # 🤖 Telegram AI Bot (OpenRouter + Vercel)
 
-A lightweight, serverless Telegram bot that connects to [OpenRouter](https://openrouter.ai) to provide **chat** and **image generation** through a clean interactive menu.
+A lightweight, serverless Telegram bot that connects to [OpenRouter](https://openrouter.ai) to provide **chat**, **image analysis**, and **image generation** through a clean interactive menu.
 
 This bot is designed for **Vercel** (serverless) with no persistent server required. It includes:
 
 - 💬 Chat with top AI models
+- 👁️ Analyze images you send (vision, OCR, object detection)
 - 🖼️ Generate images on demand
 - ⚙️ Per-user model selection (stored in Vercel KV)
 - 📊 Live usage & limit tracking (from OpenRouter)
@@ -19,6 +20,7 @@ This bot is designed for **Vercel** (serverless) with no persistent server requi
 | Feature | Description |
 |---------|-------------|
 | **Chat** | Send any text and the bot replies using your selected text model. |
+| **Image analysis** | Send a photo and the bot extracts info, text, objects, or describes it with a vision-capable model. |
 | **Image generation** | Use `/image <prompt>` to generate an image with your selected image model. |
 | **Model selection** | Browse **all models live** from OpenRouter with pagination, filter by **free models only**, and pick any text or image model. |
 | **Usage tracking** | Shows how much credit you've used (OpenRouter). |

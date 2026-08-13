@@ -53,12 +53,14 @@ async function fetchModels() {
 
       // Text-capable: has prompt+completion pricing (even if $0)
       if (!isNaN(prompt) && !isNaN(completion)) {
+        const modalities = m.architecture?.input_modalities || [];
         text.push({
           id: m.id,
           name: m.name || m.id,
           isFree: prompt === 0 && completion === 0,
           priceStr: prompt === 0 && completion === 0 ? '🆓 Free' : `$${fmt(prompt)}/$${fmt(completion)}`,
           prompt, completion,
+          supportsVision: modalities.includes('image'),
         });
       }
       // Image-generation: has image pricing
@@ -83,7 +85,7 @@ async function fetchModels() {
     console.error('fetchModels error:', err.message);
     // Fallback: convert static lists to dynamic format
     return {
-      text: FALLBACK_TEXT.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.in}/$${m.out}`, prompt: m.in, completion: m.out })),
+      text: FALLBACK_TEXT.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.in}/$${m.out}`, prompt: m.in, completion: m.out, supportsVision: true })),
       image: FALLBACK_IMAGE.map((m) => ({ id: m.id, name: m.name, isFree: false, priceStr: `$${m.price.toFixed(3)}/img`, price: m.price })),
     };
   }
@@ -221,13 +223,72 @@ async function setWebhook() {
   });
   return res.json();
 }
+// ─── Vision: get Telegram photo URL ────────────────────────────────────────────
+async function getTelegramFileUrl(fileId) {
+  const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`);
+  if (!res.ok) throw new Error(`getFile HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data.ok || !data.result?.file_path) throw new Error('getFile: no file_path');
+  return `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${data.result.file_path}`;
+}
+
+// Vision-capable fallback models (if user's text model doesn't support images)
+const VISION_FALLBACKS = ['openai/gpt-4o-mini', 'google/gemini-2.0-flash-001', 'anthropic/claude-3.5-sonnet'];
+
+async function handleVision(chatId, photoArray, caption) {
+  // Pick the largest photo
+  const best = photoArray.reduce((a, b) => (a.width * a.height > b.width * b.height ? a : b));
+  let imageUrl;
+  try {
+    imageUrl = await getTelegramFileUrl(best.file_id);
+  } catch (err) {
+    await sendMessage(chatId, `❌ Could not download image: ${err.message}`);
+    return;
+  }
+
+  // Pick a vision-capable model
+  const prefs = await getUserPrefs(chatId);
+  let modelId = prefs.text_model;
+  const all = await fetchModels();
+  const model = all.text.find((m) => m.id === modelId);
+  if (!model || !model.supportsVision) {
+    // Fall back to first vision model that exists in the list
+    const fallback = VISION_FALLBACKS.find((id) => all.text.some((m) => m.id === id));
+    modelId = fallback || 'openai/gpt-4o-mini';
+  }
+
+  const prompt = caption || 'Describe this image in detail. What do you see?';
+  await sendMessage(chatId, `👁️ Analyzing image with \`${modelId}\`…`);
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: modelId,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+      max_tokens: 1024,
+    });
+    const reply = res.choices?.[0]?.message?.content || 'No analysis returned.';
+    await sendMessage(chatId, reply, mainMenuKeyboard());
+  } catch (err) {
+    console.error('vision error:', err);
+    await sendMessage(chatId, `❌ Image analysis failed: ${err.message}`);
+  }
+}
 // ─── Command handlers ──────────────────────────────────────────────────────────
 async function handleStart(chatId) {
   await sendMessage(
     chatId,
     '👋 *Welcome to Telegram AI Bot!*\n\n' +
-      'I can chat with you and generate images using top AI models via OpenRouter.\n\n' +
+      'I can chat with you, analyze images, and generate images using top AI models via OpenRouter.\n\n' +
       'Send me any *text* to chat, or use:\n' +
+      '• 📷 *Send a photo* — I\'ll analyze it\n' +
       '• /image `<prompt>` — generate an image\n' +
       '• /models — pick your text & image model\n' +
       '• /usage — check OpenRouter usage\n' +
@@ -463,9 +524,15 @@ export default async function handler(req, res) {
 
   try {
     if (body.message) {
-      const { chat, text } = body.message;
+      const { chat, text, photo, caption } = body.message;
       if (!chat) return res.status(200).json({ ok: true });
       const chatId = chat.id;
+
+      // Photo message → vision analysis (caption is optional prompt)
+      if (photo && photo.length > 0) {
+        await handleVision(chatId, photo, caption || '');
+        return res.status(200).json({ ok: true });
+      }
 
       if (text) {
         if (text.startsWith('/start')) await handleStart(chatId);
