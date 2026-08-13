@@ -1,8 +1,7 @@
 // Telegram AI Bot — serverless webhook for Vercel
-// Uses OpenRouter for chat + image generation, Vercel KV for per-user model prefs.
+// Uses OpenRouter for chat, vision, and image generation. No KV needed.
 
 import OpenAI from 'openai';
-import { kv } from '@vercel/kv';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
@@ -120,22 +119,20 @@ async function getDefaultImageModel() {
 
 function fmt(n) { return n < 0.001 ? n.toFixed(6) : n < 1 ? n.toFixed(4) : n.toFixed(2); }
 
-const KV_PREFIX = 'tg:';
+// ─── Per-user model prefs (in-memory) ─────────────────────────────────────────
+// ponytail: prefs live only for the lifetime of a warm serverless instance.
+// On cold start they reset to free-model defaults. Upgrade path: add a
+// real store (Upstash Redis / Vercel KV) behind the same two functions.
+const userPrefs = new Map();
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-async function getUserPrefs(chatId) {
-  try {
-    const prefs = await kv.hgetall(`${KV_PREFIX}${chatId}`);
-    return prefs || {};
-  } catch {
-    return {};
-  }
+function getUserPrefs(chatId) {
+  return userPrefs.get(chatId) || {};
 }
 
-async function saveUserPref(chatId, field, value) {
-  try {
-    await kv.hset(`${KV_PREFIX}${chatId}`, { [field]: value });
-  } catch {}
+function saveUserPref(chatId, field, value) {
+  const prefs = userPrefs.get(chatId) || {};
+  prefs[field] = value;
+  userPrefs.set(chatId, prefs);
 }
 
 function inlineKeyboard(rows) {
@@ -274,7 +271,7 @@ async function handleVision(chatId, photoArray, caption) {
   }
 
   // Pick a vision-capable model (prefer free)
-  const prefs = await getUserPrefs(chatId);
+  const prefs = getUserPrefs(chatId);
   let modelId = prefs.text_model;
   const all = await fetchModels();
   const userModel = all.text.find((m) => m.id === modelId);
@@ -335,7 +332,7 @@ async function handleImage(chatId, prompt) {
     await sendMessage(chatId, 'Usage: /image <prompt>\nExample: /image a futuristic city at sunset');
     return;
   }
-  const prefs = await getUserPrefs(chatId);
+  const prefs = getUserPrefs(chatId);
   const modelId = prefs.image_model || (await getDefaultImageModel());
 
   await sendMessage(chatId, `🎨 Generating image with \`${modelId}\`…`);
@@ -354,7 +351,7 @@ async function handleImage(chatId, prompt) {
 }
 
 async function handleChat(chatId, text) {
-  const prefs = await getUserPrefs(chatId);
+  const prefs = getUserPrefs(chatId);
   const modelId = prefs.text_model || (await getDefaultTextModel());
 
   try {
@@ -395,7 +392,7 @@ async function handleUsage(chatId) {
 }
 
 async function handleInfo(chatId) {
-  const prefs = await getUserPrefs(chatId);
+  const prefs = getUserPrefs(chatId);
   const textModel = prefs.text_model || (await getDefaultTextModel());
   const imageModel = prefs.image_model || (await getDefaultImageModel());
   const all = await fetchModels();
@@ -482,7 +479,7 @@ async function handleCallback(query) {
   if (data.startsWith('sel:')) {
     await answerCallback(queryId);
     const kind = data.split(':')[1];
-    const prefs = await getUserPrefs(chatId);
+    const prefs = getUserPrefs(chatId);
     const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
     const labels = { text: '💬 Text models', image: '🖼️ Image models', free: '🆓 Free models' };
     await sendMessage(chatId, `*${labels[kind] || 'Models'}*`, await modelPageKeyboard(kind, current, 0, kind === 'free' ? false : true));
@@ -495,7 +492,7 @@ async function handleCallback(query) {
     const [, kind, pageStr, freeStr] = data.split(':');
     const page = parseInt(pageStr, 10) || 0;
     const freeOnly = freeStr === '1';
-    const prefs = await getUserPrefs(chatId);
+    const prefs = getUserPrefs(chatId);
     const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
     await sendMessage(chatId, `📄 Page ${page + 1}`, await modelPageKeyboard(kind, current, page, freeOnly));
     return;
@@ -506,7 +503,7 @@ async function handleCallback(query) {
     await answerCallback(queryId);
     const [, kind, pageStr] = data.split(':');
     const page = parseInt(pageStr, 10) || 0;
-    const prefs = await getUserPrefs(chatId);
+    const prefs = getUserPrefs(chatId);
     const current = kind === 'text' ? prefs.text_model : kind === 'image' ? prefs.image_model : null;
     // Toggle: current freeOnly state is unknown, so we pass opposite.
     // We track it via the callback_data, but since we don't have state, default to freeOnly=true
@@ -526,7 +523,7 @@ async function handleCallback(query) {
       return;
     }
     const kind = isText ? 'text' : 'image';
-    await saveUserPref(chatId, `${kind}_model`, id);
+    saveUserPref(chatId, `${kind}_model`, id);
     await answerCallback(queryId, `✅ ${kind === 'text' ? 'Text' : 'Image'} model set!`);
     await sendMessage(
       chatId,

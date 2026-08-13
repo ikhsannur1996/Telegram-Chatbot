@@ -7,11 +7,11 @@ This bot is designed for **Vercel** (serverless) with no persistent server requi
 - 💬 Chat with top AI models
 - 👁️ Analyze images you send (vision, OCR, object detection)
 - 🖼️ Generate images on demand
-- ⚙️ Per-user model selection (stored in Vercel KV)
+- ⚙️ Per-user model selection (in-memory, resets on cold start)
 - 📊 Live usage & limit tracking (from OpenRouter)
 - 💲 Pricing information for the active models
 - ℹ️ One-tap overall summary of models, usage, and price
-- 🔐 Simple, stateless architecture (except KV for user preferences)
+- 🔐 Simple, stateless architecture — no external database needed
 
 ---
 
@@ -38,15 +38,15 @@ Telegram ──POST webhook──> Vercel (api/telegram.js)
                                ├── /start → Interactive menu
                                ├── <text> → OpenRouter Chat Completion
                                ├── /image <prompt> → OpenRouter Image Generation
-                               ├── /models → User model selection (Vercel KV)
+                               ├── /models → User model selection (in-memory)
                                ├── /usage → OpenRouter auth/key endpoint
                                ├── /price → Local price table
                                └── /info → Combined summary
 ```
 
 - **Stateless logic** – Each webhook invocation is independent.
-- **Vercel KV** – Stores per-user model preferences (Redis underneath, free tier available).
-- **OpenRouter API** – Handles both text and images with one API key.
+- **No database needed** – Per-user model prefs are kept in memory (reset on cold start).
+- **OpenRouter API** – Handles both text, vision, and images with one API key.
 
 ---
 
@@ -58,7 +58,7 @@ telegram-ai-bot/
 │   └── telegram.js       # Main serverless function
 ├── .env.example          # Environment variable template
 ├── .gitignore
-├── package.json          # Dependencies (openai, @vercel/kv)
+├── package.json          # Dependencies (openai)
 ├── vercel.json           # Function timeout config
 └── README.md             # This file
 ```
@@ -70,8 +70,9 @@ telegram-ai-bot/
 1. **Telegram Bot Token** – Create via [@BotFather](https://t.me/BotFather).
 2. **OpenRouter API Key** – Get from [OpenRouter Keys](https://openrouter.ai/keys).
 3. **Vercel Account** – For hosting (free tier works for chat; image generation may need Pro or faster models).
-4. **Vercel KV** – Create a database in the Vercel Dashboard (Storage → Upstash Redis).
----
+
+No database or storage service required — the bot runs on just the two API keys above.
+
 ---
 
 ## 🔑 How to Get Your API Keys
@@ -162,9 +163,6 @@ In Vercel Dashboard → your project → Settings → Environment Variables, add
 |-----|-------|
 | `TELEGRAM_BOT_TOKEN` | Your Telegram bot token from @BotFather |
 | `OPENROUTER_API_KEY` | Your OpenRouter API key |
-| `KV_URL` | (Auto-added when you connect Vercel KV) |
-| `KV_REST_API_URL` | (Auto-added when you connect Vercel KV) |
-| `KV_REST_API_TOKEN` | (Auto-added when you connect Vercel KV) |
 
 ### 3. Deploy
 
@@ -241,14 +239,14 @@ The bot fetches **all available models live** from OpenRouter's API. You can bro
 | Webhook not responding | Re-set the webhook URL via `?register=1` or the `curl` command above. |
 | `/usage` shows error | Verify your OpenRouter API key is correct and not expired. |
 | Image generation timeout | Use a faster model or upgrade to Vercel Pro. |
-| Model selection not saving | Ensure Vercel KV is connected to your project and env vars are set. |
+| Model selection not saving | Prefs are in-memory and reset on cold start — pick the model again if it resets. |
 | Bot doesn't reply to text | Check if the bot is allowed to receive messages (in Telegram privacy settings) or if the webhook is set correctly. |
 
 ---
 
 ## 🔮 Customization Ideas
 
-- Add conversation memory (store chat history in Vercel KV).
+- Add conversation memory (store chat history in a database).
 - Add moderation or content filtering.
 - Add a `/feedback` command to forward user input to an admin.
 - Add admin-only broadcast commands.
@@ -265,6 +263,6 @@ This project is open-source and available under the **MIT License**.
 
 ## 👤 Credits
 
-Built with [OpenRouter](https://openrouter.ai), [Vercel](https://vercel.com), and [Vercel KV](https://vercel.com/docs/storage/vercel-kv).
+Built with [OpenRouter](https://openrouter.ai) and [Vercel](https://vercel.com).
 
 **Enjoy your bot!** ⭐

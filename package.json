@@ -8,7 +8,6 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "openai": "^4.73.0",
-    "@vercel/kv": "^2.0.0"
+    "openai": "^4.73.0"
   }
 }
