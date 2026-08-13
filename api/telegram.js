@@ -654,10 +654,13 @@ export default async function handler(req, res) {
       return res.status(200).setHeader('Content-Type', 'text/html').end(html);
     }
 
-    // Register bot commands only (autocomplete suggestions)
+    // Register bot commands only (autocomplete suggestions) + show current list
     if (req.query.commands === '1') {
       const cmds = await setBotCommands();
-      return res.status(200).json({ ok: cmds.ok, ...cmds });
+      const current = await fetch(
+        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMyCommands`
+      ).then(r => r.json());
+      return res.status(200).json({ ok: cmds.ok, ...cmds, currentCommands: current.result || [] });
     }
 
     // Show current webhook status from Telegram
@@ -669,8 +672,8 @@ export default async function handler(req, res) {
     }
 
     // Health check — also registers commands so they're always up to date
-    setBotCommands().catch(() => {}); // fire-and-forget
-    return res.status(200).json({ ok: true, status: 'Telegram bot webhook ready' });
+    const cmdsResult = await setBotCommands();
+    return res.status(200).json({ ok: true, status: 'Telegram bot webhook ready', commandsRegistered: cmdsResult.ok, commandsError: cmdsResult.description || null });
   }
 
   if (req.method !== 'POST') {
