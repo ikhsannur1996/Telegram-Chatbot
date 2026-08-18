@@ -241,13 +241,18 @@ async function idCloudHostRequest(path, options = {}) {
   const timer = controller ? setTimeout(() => controller.abort(), IDCLOUDHOST_TIMEOUT_MS) : null;
 
   try {
+    const headers = {
+      Accept: 'application/json',
+      apikey: IDCLOUDHOST_API_KEY,
+      ...(options.headers || {}),
+    };
+    if (options.formData) {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    }
+
     const response = await fetch(url, {
       method: options.method || 'GET',
-      headers: {
-        Accept: 'application/json',
-        apikey: IDCLOUDHOST_API_KEY,
-        ...(options.headers || {}),
-      },
+      headers,
       body: options.formData ? toFormBody(options.formData) : undefined,
       signal: controller ? controller.signal : undefined,
     });
