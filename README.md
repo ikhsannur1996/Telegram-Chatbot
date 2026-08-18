@@ -162,6 +162,10 @@ In Vercel Dashboard → your project → Settings → Environment Variables, add
 |-----|-------|
 | `TELEGRAM_BOT_TOKEN` | Your Telegram bot token from @BotFather |
 | `OPENROUTER_API_KEY` | Your OpenRouter API key |
+| `IDCLOUDHOST_API_KEY` | Your IDCloudHost API key for VM operations |
+| `IDCLOUDHOST_VM_ID` | Your target VM ID on IDCloudHost |
+| `IDCLOUDHOST_BASE_URL` | Optional custom base URL, default `https://api.idcloudhost.com` |
+| `IDCLOUDHOST_TIMEOUT_MS` | Optional request timeout in milliseconds |
 
 ### 3. Deploy
 

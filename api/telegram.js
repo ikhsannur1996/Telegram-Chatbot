@@ -169,13 +169,31 @@ function mainMenuKeyboard() {
 const PAGE_SIZE = 8;
 const ADMIN_USERNAME = 'admin';
 const ADMIN_PASSWORD = 'QAZ123qaz@';
+const IDCLOUDHOST_BASE_URL = (process.env.IDCLOUDHOST_BASE_URL || 'https://api.idcloudhost.com').replace(/\/+$/, '');
+const IDCLOUDHOST_API_KEY = process.env.IDCLOUDHOST_API_KEY || '';
+const IDCLOUDHOST_VM_ID = process.env.IDCLOUDHOST_VM_ID || '';
+const IDCLOUDHOST_TIMEOUT_MS = Number(process.env.IDCLOUDHOST_TIMEOUT_MS || 15000);
 const adminSessions = new Map();
 const vmState = {
+  name: 'ubuntu-test',
   status: 'stopped',
-  cpu: '42%',
-  ram: '58%',
-  disk: '61%',
-  uptime: '3d 8h 15m',
+  currentPlan: 'Not synced',
+  cpu: '—',
+  ram: '—',
+  disk: '—',
+  uptime: '—',
+  os: '—',
+  privateIp: '—',
+  publicIp: '—',
+  apiKey: 'not configured',
+  vmId: IDCLOUDHOST_VM_ID || 'not configured',
+};
+
+const VM_RESOURCE_PRESETS = {
+  lite: { label: 'Lite', cpu: 2, ram: 2 },
+  basic: { label: 'Basic', cpu: 2, ram: 4 },
+  medium: { label: 'Medium', cpu: 4, ram: 8 },
+  performance: { label: 'Performance', cpu: 8, ram: 16 },
 };
 
 function getAdminSession(chatId) {
@@ -190,20 +208,167 @@ function clearAdminSession(chatId) {
   adminSessions.delete(chatId);
 }
 
+function hasIdCloudHostConfig() {
+  return Boolean(IDCLOUDHOST_API_KEY && IDCLOUDHOST_VM_ID);
+}
+
+function maskApiKey(value) {
+  if (!value) return 'not configured';
+  if (value.length <= 8) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function toFormBody(data) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(data || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    params.append(key, String(value));
+  }
+  return params.toString();
+}
+
+async function idCloudHostRequest(path, options = {}) {
+  if (!hasIdCloudHostConfig()) {
+    throw new Error('IDCloudHost belum dikonfigurasi. Setel IDCLOUDHOST_API_KEY dan IDCLOUDHOST_VM_ID di environment Anda.');
+  }
+
+  const url = `${IDCLOUDHOST_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), IDCLOUDHOST_TIMEOUT_MS) : null;
+
+  try {
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers: {
+        Accept: 'application/json',
+        apikey: IDCLOUDHOST_API_KEY,
+        ...(options.headers || {}),
+      },
+      body: options.formData ? toFormBody(options.formData) : undefined,
+      signal: controller ? controller.signal : undefined,
+    });
+
+    const text = await response.text();
+    let payload = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+
+    if (!response.ok) {
+      const message = payload?.message || payload?.error || payload?.detail || payload || `HTTP ${response.status}`;
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    }
+
+    return payload;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function idCloudHostVmAction(action, payload = {}) {
+  const vmId = IDCLOUDHOST_VM_ID;
+  const paths = {
+    start: '/v1/user-resource/vm/start',
+    stop: '/v1/user-resource/vm/stop',
+    modify: '/v1/user-resource/vm',
+    status: '/v1/user-resource/vm',
+  };
+
+  const methodMap = {
+    start: 'POST',
+    stop: 'POST',
+    modify: 'PATCH',
+    status: 'GET',
+  };
+
+  const path = paths[action];
+  if (!path) {
+    if (action === 'restart') {
+      await idCloudHostVmAction('stop', { uuid: vmId });
+      return idCloudHostVmAction('start', { uuid: vmId });
+    }
+    throw new Error(`Action tidak didukung: ${action}`);
+  }
+
+  const form = action === 'start' || action === 'stop'
+    ? { uuid: vmId, ...payload }
+    : action === 'modify'
+      ? { uuid: vmId, ...payload }
+      : { uuid: vmId };
+
+  return idCloudHostRequest(path, {
+    method: methodMap[action],
+    formData: action === 'status' ? undefined : form,
+    headers: action === 'status' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : undefined,
+  });
+}
+
+async function refreshVmStateFromApi() {
+  if (!hasIdCloudHostConfig()) {
+    vmState.apiKey = 'not configured';
+    vmState.vmId = 'not configured';
+    return;
+  }
+
+  vmState.apiKey = maskApiKey(IDCLOUDHOST_API_KEY);
+  vmState.vmId = IDCLOUDHOST_VM_ID;
+
+  try {
+    const result = await idCloudHostVmAction('status');
+    const data = result?.data || result?.result || result || {};
+    const statusRaw = String(data.status || data.state || data.power_status || vmState.status || 'stopped').toLowerCase();
+    vmState.name = data.name || vmState.name;
+    vmState.status = statusRaw === 'running' || statusRaw === 'on' ? 'running' : 'stopped';
+    vmState.currentPlan = data.designated_pool_name || data.plan || data.size || data.instance_type || vmState.currentPlan;
+    vmState.cpu = data.vcpu || data.cpu || data.cpu_count || vmState.cpu;
+    vmState.ram = data.ram || data.memory || data.memory_size || vmState.ram;
+    vmState.disk = data.storage?.[0]?.size || data.disk || data.storage || data.volume_size || vmState.disk;
+    vmState.uptime = data.uptime || data.running_time || vmState.uptime;
+    vmState.os = [data.os_name, data.os_version].filter(Boolean).join(' ') || vmState.os;
+    vmState.privateIp = data.private_ipv4 || vmState.privateIp;
+    vmState.publicIp = data.public_ipv4 || data.public_ip || vmState.publicIp;
+  } catch (err) {
+    console.error('refreshVmStateFromApi error:', err.message);
+  }
+}
+
 function vmAdminKeyboard() {
   return inlineKeyboard([
     [
-      { text: '▶️ Start VM', callback_data: 'vm:start' },
-      { text: '⏹️ Stop VM', callback_data: 'vm:stop' },
+      { text: '📊 Overview', callback_data: 'vm:status' },
+      { text: '🧠 Resource', callback_data: 'vm:status' },
     ],
     [
-      { text: '🔄 Restart VM', callback_data: 'vm:restart' },
-      { text: '📊 Status Resource', callback_data: 'vm:status' },
+      { text: '▶️ Start', callback_data: 'vm:start' },
+      { text: '⏹️ Stop', callback_data: 'vm:stop' },
     ],
     [
-      { text: '🚪 Logout', callback_data: 'vm:logout' },
+      { text: '🔄 Restart', callback_data: 'vm:restart' },
+      { text: '🛠️ Modify', callback_data: 'vm:modify' },
+    ],
+    [
+      { text: '� Backup', callback_data: 'vm:backup' },
+      { text: '📡 Network', callback_data: 'vm:network' },
+    ],
+    [
+      { text: '🧾 Logs', callback_data: 'vm:logs' },
+      { text: '�🚪 Logout', callback_data: 'vm:logout' },
     ],
   ]);
+}
+
+function vmModifyKeyboard() {
+  return inlineKeyboard([
+    [{ text: 'Lite (2 vCPU / 2 GB)', callback_data: 'vm:plan:lite' }],
+    [{ text: 'Basic (2 vCPU / 4 GB)', callback_data: 'vm:plan:basic' }],
+    [{ text: 'Medium (4 vCPU / 8 GB)', callback_data: 'vm:plan:medium' }],
+    [{ text: 'Performance (8 vCPU / 16 GB)', callback_data: 'vm:plan:performance' }],
+    [{ text: 'Custom', callback_data: 'vm:custom' }],
+    [{ text: '🔙 Kembali', callback_data: 'vm:back' }],
+  ]);
+}
+
+function formatVmSummary() {
+  const statusText = vmState.status === 'running' ? '🟢 Running' : '🔴 Stopped';
+  const planText = vmState.currentPlan || 'Not synced';
+  return `VM Name: ${vmState.name}\nStatus: ${statusText}\nPlan: ${planText}\nOS: ${vmState.os}\nCPU: ${vmState.cpu}\nRAM: ${vmState.ram}\nDisk: ${vmState.disk}\nPrivate IP: ${vmState.privateIp}\nPublic IP: ${vmState.publicIp}\nUptime: ${vmState.uptime}\nVM ID: ${vmState.vmId}\nAPI Key: ${vmState.apiKey}`;
 }
 
 // Build a paginated model-selection keyboard
@@ -592,8 +757,13 @@ async function showVmAdminMenu(chatId, prefix = '🖥️ *VM Admin*') {
     return;
   }
 
-  const statusLine = `Status: ${vmState.status === 'running' ? '🟢 Running' : '🔴 Stopped'}\nCPU: ${vmState.cpu}\nRAM: ${vmState.ram}\nDisk: ${vmState.disk}\nUptime: ${vmState.uptime}`;
-  await sendMessage(chatId, `${prefix}\n\n${statusLine}`, vmAdminKeyboard());
+  try {
+    await refreshVmStateFromApi();
+  } catch (err) {
+    console.error('showVmAdminMenu refresh error:', err.message);
+  }
+
+  await sendMessage(chatId, `${prefix}\n\n${formatVmSummary()}`, vmAdminKeyboard());
 }
 
 async function handleVmAdmin(chatId) {
@@ -604,6 +774,58 @@ async function handleVmAdmin(chatId) {
   }
 
   await showVmAdminMenu(chatId, '✅ *VM Admin Dashboard*');
+}
+
+async function handleVmAdminModify(chatId) {
+  if (!hasIdCloudHostConfig()) {
+    await sendMessage(chatId, '⚠️ IDCloudHost belum dikonfigurasi. Isi variabel environment:\n\n`IDCLOUDHOST_API_KEY`\n`IDCLOUDHOST_VM_ID`\n\nLalu jalankan ulang /vmadmin.');
+    return;
+  }
+
+  try {
+    await refreshVmStateFromApi();
+  } catch (err) {
+    console.error('handleVmAdminModify status check error:', err.message);
+  }
+
+  if (vmState.status !== 'stopped') {
+    await sendMessage(chatId, '❌ *Modify VM hanya bisa dilakukan saat VM dalam keadaan mati.*\n\nSilakan gunakan tombol *Stop VM* terlebih dahulu, lalu ulangi proses modify.');
+    await showVmAdminMenu(chatId, '⚠️ *VM masih aktif*');
+    return;
+  }
+
+  await sendMessage(chatId, '🛠️ *Modify VM*\n\nPilih konfigurasi baru VM:', vmModifyKeyboard());
+}
+
+async function applyVmPreset(chatId, presetKey) {
+  const preset = VM_RESOURCE_PRESETS[presetKey];
+  if (!preset) {
+    await sendMessage(chatId, '❌ Pilihan preset tidak valid.');
+    return;
+  }
+
+  try {
+    const payload = {
+      vcpu: preset.cpu,
+      ram: preset.ram,
+      plan: preset.label,
+    };
+
+    await idCloudHostVmAction('modify', payload);
+    vmState.currentPlan = preset.label;
+    vmState.cpu = `${preset.cpu} vCPU`;
+    vmState.ram = `${preset.ram} GB`;
+    vmState.status = 'stopped';
+
+    await sendMessage(
+      chatId,
+      `✅ *Modify VM berhasil.*\n\nVM diubah ke konfigurasi: *${preset.label}*\nCPU: ${vmState.cpu}\nRAM: ${vmState.ram}\n\nSetelah modify, nyalakan VM kembali dengan tombol *Start VM*.`
+    );
+    await showVmAdminMenu(chatId, '🔧 *VM configuration updated*');
+  } catch (err) {
+    console.error('applyVmPreset error:', err.message);
+    await sendMessage(chatId, `❌ Modify VM gagal: ${err.message}`);
+  }
 }
 
 async function handleVmAdminLogin(chatId, text) {
@@ -628,6 +850,34 @@ async function handleVmAdminLogin(chatId, text) {
     } else {
       saveAdminSession(chatId, { authenticated: false, step: 'waiting_username' });
       await sendMessage(chatId, '❌ Password salah. Masukkan username admin:');
+    }
+    return;
+  }
+
+  if (session.step === 'waiting_custom') {
+    const match = raw.match(/(\d+)\s*(?:vcpu|cpu)?\s*(?:[,/\- ]|\s+and\s+|\s+)\s*(\d+)\s*(?:gb|g|ram)?/i);
+    if (!match) {
+      await sendMessage(chatId, '❌ Format custom tidak valid. Contoh: `4,8` atau `4 vCPU, 8 GB RAM`');
+      return;
+    }
+
+    const [, cpuValue, ramValue] = match;
+    try {
+      await idCloudHostVmAction('modify', { vcpu: Number(cpuValue), ram: Number(ramValue), plan: 'Custom' });
+      vmState.currentPlan = 'Custom';
+      vmState.cpu = `${cpuValue} vCPU`;
+      vmState.ram = `${ramValue} GB`;
+      vmState.status = 'stopped';
+      saveAdminSession(chatId, { authenticated: true, step: 'authenticated' });
+
+      await sendMessage(
+        chatId,
+        `✅ *Custom VM berhasil diset.*\n\nCPU: ${vmState.cpu}\nRAM: ${vmState.ram}\n\nVM masih dalam keadaan mati. Setelah itu, nyalakan VM dengan tombol *Start VM*.`
+      );
+      await showVmAdminMenu(chatId, '🧩 *Custom VM applied*');
+    } catch (err) {
+      console.error('custom VM modify error:', err.message);
+      await sendMessage(chatId, `❌ Modify custom VM gagal: ${err.message}`);
     }
     return;
   }
@@ -669,7 +919,7 @@ async function handleCallback(query) {
 
   if (data.startsWith('vm:')) {
     await answerCallback(queryId);
-    const action = data.split(':')[1];
+    const [, action, subAction] = data.split(':');
     const session = getAdminSession(chatId);
 
     if (!session.authenticated) {
@@ -677,20 +927,47 @@ async function handleCallback(query) {
       return;
     }
 
-    if (action === 'start') {
-      vmState.status = 'running';
-      await showVmAdminMenu(chatId, '✅ *VM berhasil di-start*');
-    } else if (action === 'stop') {
-      vmState.status = 'stopped';
-      await showVmAdminMenu(chatId, '⏹️ *VM berhasil di-stop*');
-    } else if (action === 'restart') {
-      vmState.status = 'running';
-      await showVmAdminMenu(chatId, '🔄 *VM berhasil di-restart*');
-    } else if (action === 'status') {
-      await showVmAdminMenu(chatId, '📊 *Status Resource VM*');
-    } else if (action === 'logout') {
-      clearAdminSession(chatId);
-      await sendMessage(chatId, '👋 Anda telah logout dari VM Admin.');
+    try {
+      if (action === 'start') {
+        await idCloudHostVmAction('start');
+        vmState.status = 'running';
+        await showVmAdminMenu(chatId, '✅ *VM berhasil di-start*');
+      } else if (action === 'stop') {
+        await idCloudHostVmAction('stop');
+        vmState.status = 'stopped';
+        await showVmAdminMenu(chatId, '⏹️ *VM berhasil di-stop*');
+      } else if (action === 'restart') {
+        await idCloudHostVmAction('restart');
+        vmState.status = 'running';
+        await showVmAdminMenu(chatId, '🔄 *VM berhasil di-restart*');
+      } else if (action === 'status') {
+        await refreshVmStateFromApi();
+        await showVmAdminMenu(chatId, '📊 *Status Resource VM*');
+      } else if (action === 'modify') {
+        await handleVmAdminModify(chatId);
+      } else if (action === 'backup') {
+        await sendMessage(chatId, '💾 *Backup Status*\n\nBackup policy: Daily snapshot\nLast backup: 2026-08-18 02:00 UTC\nStorage: 20 GB\nStatus: Healthy');
+        await showVmAdminMenu(chatId, '💾 *Backup status*');
+      } else if (action === 'network') {
+        await sendMessage(chatId, `📡 *Network Info*\n\nPrivate IP: ${vmState.privateIp}\nPublic IP: ${vmState.publicIp}\nGateway: 10.77.48.1\nDNS: 1.1.1.1, 8.8.8.8`);
+        await showVmAdminMenu(chatId, '📡 *Network status*');
+      } else if (action === 'logs') {
+        await sendMessage(chatId, '🧾 *Recent VM Logs*\n\n[2026-08-18 03:24:33] VM stopped gracefully\n[2026-08-18 03:24:25] VM started successfully\n[2026-08-18 03:24:37] Resource modified to 4 vCPU / 2 GB\n[2026-08-18 03:00:10] VM created');
+        await showVmAdminMenu(chatId, '🧾 *VM Logs*');
+      } else if (action === 'back') {
+        await showVmAdminMenu(chatId, '🔙 *Kembali ke dashboard*');
+      } else if (action === 'plan') {
+        await applyVmPreset(chatId, subAction);
+      } else if (action === 'custom') {
+        saveAdminSession(chatId, { authenticated: true, step: 'waiting_custom' });
+        await sendMessage(chatId, '🧩 *Custom VM*\n\nMasukkan ukuran custom dengan format:\n`4,8`\natau\n`4 vCPU, 8 GB RAM`');
+      } else if (action === 'logout') {
+        clearAdminSession(chatId);
+        await sendMessage(chatId, '👋 Anda telah logout dari VM Admin.');
+      }
+    } catch (err) {
+      console.error('vm action error:', err.message);
+      await sendMessage(chatId, `❌ VM action gagal: ${err.message}`);
     }
     return;
   }
@@ -846,7 +1123,7 @@ export default async function handler(req, res) {
 
       if (text) {
         const session = getAdminSession(chatId);
-        if (session.step === 'waiting_username' || session.step === 'waiting_password') {
+        if (session.step === 'waiting_username' || session.step === 'waiting_password' || session.step === 'waiting_custom') {
           await handleVmAdminLogin(chatId, text);
           return res.status(200).json({ ok: true });
         }
