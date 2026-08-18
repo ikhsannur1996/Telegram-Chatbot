@@ -167,8 +167,8 @@ function mainMenuKeyboard() {
 }
 
 const PAGE_SIZE = 8;
-const ADMIN_USERNAME = 'admin';
-const ADMIN_PASSWORD = 'QAZ123qaz@';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'QAZ123qaz@';
 const IDCLOUDHOST_BASE_URL = (process.env.IDCLOUDHOST_BASE_URL || 'https://api.idcloudhost.com').replace(/\/+$/, '');
 const IDCLOUDHOST_API_KEY = process.env.IDCLOUDHOST_API_KEY || '';
 const IDCLOUDHOST_VM_ID = process.env.IDCLOUDHOST_VM_ID || '';
