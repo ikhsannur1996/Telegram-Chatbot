@@ -160,10 +160,51 @@ function mainMenuKeyboard() {
       { text: '👤 Profile', callback_data: 'menu:profile' },
       { text: 'ℹ️ About', callback_data: 'menu:about' },
     ],
+    [
+      { text: '🖥️ VM Admin', callback_data: 'menu:vmadmin' },
+    ],
   ]);
 }
 
 const PAGE_SIZE = 8;
+const ADMIN_USERNAME = 'admin';
+const ADMIN_PASSWORD = 'QAZ123qaz@';
+const adminSessions = new Map();
+const vmState = {
+  status: 'stopped',
+  cpu: '42%',
+  ram: '58%',
+  disk: '61%',
+  uptime: '3d 8h 15m',
+};
+
+function getAdminSession(chatId) {
+  return adminSessions.get(chatId) || { authenticated: false, step: 'idle' };
+}
+
+function saveAdminSession(chatId, session) {
+  adminSessions.set(chatId, session);
+}
+
+function clearAdminSession(chatId) {
+  adminSessions.delete(chatId);
+}
+
+function vmAdminKeyboard() {
+  return inlineKeyboard([
+    [
+      { text: '▶️ Start VM', callback_data: 'vm:start' },
+      { text: '⏹️ Stop VM', callback_data: 'vm:stop' },
+    ],
+    [
+      { text: '🔄 Restart VM', callback_data: 'vm:restart' },
+      { text: '📊 Status Resource', callback_data: 'vm:status' },
+    ],
+    [
+      { text: '🚪 Logout', callback_data: 'vm:logout' },
+    ],
+  ]);
+}
 
 // Build a paginated model-selection keyboard
 async function modelPageKeyboard(kind, currentId, page = 0, freeOnly = false) {
@@ -334,6 +375,7 @@ async function setBotCommands() {
     { command: 'usage', description: 'Check OpenRouter credit usage' },
     { command: 'profile', description: 'Your profile — active models and usage' },
     { command: 'about', description: 'Learn about this bot — features, architecture & more' },
+    { command: 'vmadmin', description: 'Access the VM admin dashboard' },
   ];
   const res = await fetch(url, {
     method: 'POST',
@@ -542,6 +584,58 @@ async function handleAbout(chatId) {
   await sendMessage(chatId, text, mainMenuKeyboard());
 }
 
+async function showVmAdminMenu(chatId, prefix = '🖥️ *VM Admin*') {
+  const session = getAdminSession(chatId);
+  if (!session.authenticated) {
+    saveAdminSession(chatId, { authenticated: false, step: 'waiting_username' });
+    await sendMessage(chatId, '🔐 *VM Admin Login*\n\nMasukkan username admin:');
+    return;
+  }
+
+  const statusLine = `Status: ${vmState.status === 'running' ? '🟢 Running' : '🔴 Stopped'}\nCPU: ${vmState.cpu}\nRAM: ${vmState.ram}\nDisk: ${vmState.disk}\nUptime: ${vmState.uptime}`;
+  await sendMessage(chatId, `${prefix}\n\n${statusLine}`, vmAdminKeyboard());
+}
+
+async function handleVmAdmin(chatId) {
+  const session = getAdminSession(chatId);
+  if (!session.authenticated) {
+    await showVmAdminMenu(chatId);
+    return;
+  }
+
+  await showVmAdminMenu(chatId, '✅ *VM Admin Dashboard*');
+}
+
+async function handleVmAdminLogin(chatId, text) {
+  const raw = String(text || '').trim();
+  const session = getAdminSession(chatId);
+
+  if (session.step === 'waiting_username') {
+    if (raw === ADMIN_USERNAME) {
+      saveAdminSession(chatId, { authenticated: false, step: 'waiting_password' });
+      await sendMessage(chatId, '🔐 Username benar. Masukkan password:');
+    } else {
+      saveAdminSession(chatId, { authenticated: false, step: 'waiting_username' });
+      await sendMessage(chatId, '❌ Username salah. Masukkan username admin:');
+    }
+    return;
+  }
+
+  if (session.step === 'waiting_password') {
+    if (raw === ADMIN_PASSWORD) {
+      saveAdminSession(chatId, { authenticated: true, step: 'authenticated' });
+      await showVmAdminMenu(chatId, '✅ *Login berhasil!*');
+    } else {
+      saveAdminSession(chatId, { authenticated: false, step: 'waiting_username' });
+      await sendMessage(chatId, '❌ Password salah. Masukkan username admin:');
+    }
+    return;
+  }
+
+  if (text && text.startsWith('/')) {
+    await handleVmAdmin(chatId);
+  }
+}
 
 // ─── Callback (menu button) handler ────────────────────────────────────────────
 async function handleCallback(query) {
@@ -573,6 +667,34 @@ async function handleCallback(query) {
     return;
   }
 
+  if (data.startsWith('vm:')) {
+    await answerCallback(queryId);
+    const action = data.split(':')[1];
+    const session = getAdminSession(chatId);
+
+    if (!session.authenticated) {
+      await sendMessage(chatId, '❌ Anda belum login ke VM Admin. Gunakan /vmadmin untuk masuk.');
+      return;
+    }
+
+    if (action === 'start') {
+      vmState.status = 'running';
+      await showVmAdminMenu(chatId, '✅ *VM berhasil di-start*');
+    } else if (action === 'stop') {
+      vmState.status = 'stopped';
+      await showVmAdminMenu(chatId, '⏹️ *VM berhasil di-stop*');
+    } else if (action === 'restart') {
+      vmState.status = 'running';
+      await showVmAdminMenu(chatId, '🔄 *VM berhasil di-restart*');
+    } else if (action === 'status') {
+      await showVmAdminMenu(chatId, '📊 *Status Resource VM*');
+    } else if (action === 'logout') {
+      clearAdminSession(chatId);
+      await sendMessage(chatId, '👋 Anda telah logout dari VM Admin.');
+    }
+    return;
+  }
+
   if (data.startsWith('menu:')) {
     await answerCallback(queryId);
     const section = data.split(':')[1];
@@ -594,6 +716,8 @@ async function handleCallback(query) {
       await handleProfile(chatId);
     } else if (section === 'about') {
       await handleAbout(chatId);
+    } else if (section === 'vmadmin') {
+      await handleVmAdmin(chatId);
     }
     return;
   }
@@ -721,6 +845,12 @@ export default async function handler(req, res) {
       }
 
       if (text) {
+        const session = getAdminSession(chatId);
+        if (session.step === 'waiting_username' || session.step === 'waiting_password') {
+          await handleVmAdminLogin(chatId, text);
+          return res.status(200).json({ ok: true });
+        }
+
         if (text.startsWith('/start')) await handleStart(chatId);
         else if (text.startsWith('/chat')) {
           await sendMessage(chatId, '💬 *Chat*\n\nJust send me any text and I\'ll reply using the AI!\n\nTip: /image <prompt> to generate images, /models to pick a model.', mainMenuKeyboard());
@@ -736,6 +866,7 @@ export default async function handler(req, res) {
         } else if (text.startsWith('/usage')) await handleUsage(chatId);
         else if (text.startsWith('/profile')) await handleProfile(chatId);
         else if (text.startsWith('/about')) await handleAbout(chatId);
+        else if (text.startsWith('/vmadmin')) await handleVmAdmin(chatId);
         else await handleChat(chatId, text);
       }
     } else if (body.callback_query) {
