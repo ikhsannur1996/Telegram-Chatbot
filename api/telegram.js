@@ -175,25 +175,52 @@ const IDCLOUDHOST_VM_ID = process.env.IDCLOUDHOST_VM_ID || '';
 const IDCLOUDHOST_TIMEOUT_MS = Number(process.env.IDCLOUDHOST_TIMEOUT_MS || 15000);
 const adminSessions = new Map();
 const vmState = {
+  // Basic info
   name: 'ubuntu-test',
+  uuid: IDCLOUDHOST_VM_ID || 'not configured',
   status: 'stopped',
+  description: '—',
+  
+  // Resource info
   currentPlan: 'Not synced',
   cpu: '—',
   ram: '—',
   disk: '—',
-  uptime: '—',
-  os: '—',
+  
+  // Network info
   privateIp: '—',
   publicIp: '—',
+  mac: '—',
+  hostname: '—',
+  
+  // Storage info
+  storageCount: 0,
+  
+  // System info
+  osName: '—',
+  osVersion: '—',
+  os: '—',
+  uptime: '—',
+  
+  // Account info
+  username: '—',
+  billingAccount: '—',
+  backup: false,
+  
+  // Timestamps
+  createdAt: '—',
+  updatedAt: '—',
+  
+  // Config info
   apiKey: 'not configured',
   vmId: IDCLOUDHOST_VM_ID || 'not configured',
 };
 
 const VM_RESOURCE_PRESETS = {
-  lite: { label: 'Lite', cpu: 2, ram: 2 },
-  basic: { label: 'Basic', cpu: 2, ram: 4 },
-  medium: { label: 'Medium', cpu: 4, ram: 8 },
-  performance: { label: 'Performance', cpu: 8, ram: 16 },
+  lite: { label: 'Lite', cpu: 2, ramMb: 2048, ramDisplay: '2 GB' },
+  basic: { label: 'Basic', cpu: 2, ramMb: 4096, ramDisplay: '4 GB' },
+  medium: { label: 'Medium', cpu: 4, ramMb: 8192, ramDisplay: '8 GB' },
+  performance: { label: 'Performance', cpu: 8, ramMb: 16384, ramDisplay: '16 GB' },
 };
 
 function getAdminSession(chatId) {
@@ -329,16 +356,42 @@ async function refreshVmStateFromApi() {
     const result = await idCloudHostVmAction('status');
     const data = result?.data || result?.result || result || {};
     const statusRaw = String(data.status || data.state || data.power_status || vmState.status || 'stopped').toLowerCase();
+    
+    // Basic info
     vmState.name = data.name || vmState.name;
+    vmState.uuid = data.uuid || vmState.uuid;
     vmState.status = statusRaw === 'running' || statusRaw === 'on' ? 'running' : 'stopped';
-    vmState.currentPlan = data.designated_pool_name || data.plan || data.size || data.instance_type || vmState.currentPlan;
-    vmState.cpu = data.vcpu || data.cpu || data.cpu_count || vmState.cpu;
-    vmState.ram = data.ram || data.memory || data.memory_size || vmState.ram;
-    vmState.disk = data.storage?.[0]?.size || data.disk || data.storage || data.volume_size || vmState.disk;
-    vmState.uptime = data.uptime || data.running_time || vmState.uptime;
-    vmState.os = [data.os_name, data.os_version].filter(Boolean).join(' ') || vmState.os;
+    vmState.description = data.description || vmState.description;
+    
+    // Resource info
+    vmState.currentPlan = data.designated_pool_name || data.current_pool_name || data.plan || vmState.currentPlan;
+    vmState.cpu = data.vcpu ? `${data.vcpu} vCPU` : vmState.cpu;
+    vmState.ram = data.memory ? `${data.memory} MB` : vmState.ram;
+    vmState.disk = data.storage?.[0]?.size ? `${data.storage[0].size} GB` : vmState.disk;
+    
+    // Network info
     vmState.privateIp = data.private_ipv4 || vmState.privateIp;
     vmState.publicIp = data.public_ipv4 || data.public_ip || vmState.publicIp;
+    vmState.mac = data.mac || vmState.mac;
+    vmState.hostname = data.hostname || vmState.hostname;
+    
+    // Storage info
+    vmState.storageCount = data.storage?.length || 0;
+    
+    // System info
+    vmState.osName = data.os_name || vmState.osName;
+    vmState.osVersion = data.os_version || vmState.osVersion;
+    vmState.os = [data.os_name, data.os_version].filter(Boolean).join(' ') || vmState.os;
+    vmState.uptime = data.uptime || data.running_time || vmState.uptime;
+    
+    // Account info
+    vmState.username = data.username || vmState.username;
+    vmState.billingAccount = data.billing_account || vmState.billingAccount;
+    vmState.backup = data.backup || vmState.backup;
+    
+    // Timestamps
+    if (data.created_at) vmState.createdAt = data.created_at.split(' ')[0];
+    if (data.updated_at) vmState.updatedAt = data.updated_at.split(' ')[0];
   } catch (err) {
     console.error('refreshVmStateFromApi error:', err.message);
   }
@@ -382,8 +435,38 @@ function vmModifyKeyboard() {
 
 function formatVmSummary() {
   const statusText = vmState.status === 'running' ? '🟢 Running' : '🔴 Stopped';
-  const planText = vmState.currentPlan || 'Not synced';
-  return `VM Name: ${vmState.name}\nStatus: ${statusText}\nPlan: ${planText}\nOS: ${vmState.os}\nCPU: ${vmState.cpu}\nRAM: ${vmState.ram}\nDisk: ${vmState.disk}\nPrivate IP: ${vmState.privateIp}\nPublic IP: ${vmState.publicIp}\nUptime: ${vmState.uptime}\nVM ID: ${vmState.vmId}\nAPI Key: ${vmState.apiKey}`;
+  const backupText = vmState.backup ? '✅ Enabled' : '❌ Disabled';
+  const lines = [
+    `📦 *VM Information*`,
+    `Name: \`${vmState.name}\``,
+    `Status: ${statusText}`,
+    `Description: ${vmState.description}`,
+    ``,
+    `💾 *Resources*`,
+    `Plan: ${vmState.currentPlan}`,
+    `vCPU: ${vmState.cpu}`,
+    `Memory: ${vmState.ram}`,
+    `Storage: ${vmState.disk} (${vmState.storageCount} disk${vmState.storageCount !== 1 ? 's' : ''})`,
+    ``,
+    `🌐 *Network*`,
+    `Private IP: \`${vmState.privateIp}\``,
+    `Public IP: ${vmState.publicIp === '—' || !vmState.publicIp ? '❌ None' : `\`${vmState.publicIp}\``}`,
+    `MAC Address: \`${vmState.mac}\``,
+    `Hostname: ${vmState.hostname}`,
+    ``,
+    `🖥️ *System*`,
+    `OS: ${vmState.os}`,
+    `Uptime: ${vmState.uptime}`,
+    `Backup: ${backupText}`,
+    ``,
+    `👤 *Account*`,
+    `Username: ${vmState.username}`,
+    `Billing: ${vmState.billingAccount}`,
+    `UUID: \`${vmState.uuid}\``,
+    `Created: ${vmState.createdAt}`,
+    `Updated: ${vmState.updatedAt}`,
+  ];
+  return lines.join('\n');
 }
 
 // Build a paginated model-selection keyboard
@@ -822,14 +905,14 @@ async function applyVmPreset(chatId, presetKey) {
   try {
     const payload = {
       vcpu: preset.cpu,
-      ram: preset.ram,
+      ram: preset.ramMb,
       plan: preset.label,
     };
 
     await idCloudHostVmAction('modify', payload);
     vmState.currentPlan = preset.label;
     vmState.cpu = `${preset.cpu} vCPU`;
-    vmState.ram = `${preset.ram} GB`;
+    vmState.ram = preset.ramDisplay;
     vmState.status = 'stopped';
 
     await sendMessage(
@@ -870,18 +953,37 @@ async function handleVmAdminLogin(chatId, text) {
   }
 
   if (session.step === 'waiting_custom') {
-    const match = raw.match(/(\d+)\s*(?:vcpu|cpu)?\s*(?:[,/\- ]|\s+and\s+|\s+)\s*(\d+)\s*(?:gb|g|ram)?/i);
+    const match = raw.match(/(\d+)\s*(?:vcpu|cpu)?\s*(?:[,/\- ]|\s+and\s+|\s+)\s*(\d+)\s*(?:gb|g|ram|mb|m)?/i);
     if (!match) {
       await sendMessage(chatId, '❌ Format custom tidak valid. Contoh: `4,8` atau `4 vCPU, 8 GB RAM`');
       return;
     }
 
-    const [, cpuValue, ramValue] = match;
+    const [, cpuValueRaw, ramValueRaw] = match;
+    const cpuValue = Number(cpuValueRaw);
+    const ramUnit = raw.match(/(?:gb|g|ram|mb|m)/i)?.[0]?.toLowerCase() || '';
+    let ramValue = Number(ramValueRaw);
+    if (ramUnit && /mb|m/.test(ramUnit)) {
+      ramValue = Number(ramValueRaw);
+    } else {
+      ramValue = Number(ramValueRaw) * 1024;
+    }
+
+    if (!Number.isFinite(cpuValue) || !Number.isFinite(ramValue)) {
+      await sendMessage(chatId, '❌ Nilai CPU/RAM tidak valid. Gunakan format seperti `4,8` atau `4 vCPU, 8 GB RAM`.');
+      return;
+    }
+
+    if (ramValue < 2048 || ramValue > 65535) {
+      await sendMessage(chatId, '❌ *RAM tidak valid.*\n\nIDCloudHost mensyaratkan ukuran RAM antara *2048 MB* dan *65535 MB*.\nContoh: `2,4` = 2 vCPU, 4 GB RAM.');
+      return;
+    }
+
     try {
-      await idCloudHostVmAction('modify', { vcpu: Number(cpuValue), ram: Number(ramValue), plan: 'Custom' });
+      await idCloudHostVmAction('modify', { vcpu: cpuValue, ram: Math.round(ramValue), plan: 'Custom' });
       vmState.currentPlan = 'Custom';
       vmState.cpu = `${cpuValue} vCPU`;
-      vmState.ram = `${ramValue} GB`;
+      vmState.ram = `${Math.round(ramValue / 1024)} GB`;
       vmState.status = 'stopped';
       saveAdminSession(chatId, { authenticated: true, step: 'authenticated' });
 
