@@ -232,7 +232,11 @@ async function idCloudHostRequest(path, options = {}) {
     throw new Error('IDCloudHost belum dikonfigurasi. Setel IDCLOUDHOST_API_KEY dan IDCLOUDHOST_VM_ID di environment Anda.');
   }
 
-  const url = `${IDCLOUDHOST_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  let url = `${IDCLOUDHOST_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  if (options.queryParams) {
+    const params = new URLSearchParams(options.queryParams);
+    url += '?' + params.toString();
+  }
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), IDCLOUDHOST_TIMEOUT_MS) : null;
 
@@ -287,6 +291,13 @@ async function idCloudHostVmAction(action, payload = {}) {
     throw new Error(`Action tidak didukung: ${action}`);
   }
 
+  if (action === 'status') {
+    return idCloudHostRequest(path, {
+      method: 'GET',
+      queryParams: { uuid: vmId, ...payload },
+    });
+  }
+
   const form = action === 'start' || action === 'stop'
     ? { uuid: vmId, ...payload }
     : action === 'modify'
@@ -295,8 +306,7 @@ async function idCloudHostVmAction(action, payload = {}) {
 
   return idCloudHostRequest(path, {
     method: methodMap[action],
-    formData: action === 'status' ? undefined : form,
-    headers: action === 'status' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : undefined,
+    formData: form,
   });
 }
 
